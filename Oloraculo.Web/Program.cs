@@ -131,6 +131,10 @@ using (var Scope = app.Services.CreateScope())
             MoraleAdjustment REAL NOT NULL DEFAULT 0,
             Summary TEXT NOT NULL DEFAULT '',
             Signal TEXT NOT NULL DEFAULT 'neutral',
+            InjuriesSignal TEXT NOT NULL DEFAULT 'none',
+            PersonalIssuesSignal TEXT NOT NULL DEFAULT 'none',
+            PreviousMatchSignal TEXT NOT NULL DEFAULT 'unknown',
+            MoraleSignal TEXT NOT NULL DEFAULT 'none',
             UpdatedAt TEXT NOT NULL DEFAULT ''
         )
     """);
