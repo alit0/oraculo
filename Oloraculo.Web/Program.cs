@@ -138,6 +138,18 @@ using (var Scope = app.Services.CreateScope())
             UpdatedAt TEXT NOT NULL DEFAULT ''
         )
     """);
+    // Add new signal columns to existing MoraleContexts tables (SQLite has no ADD COLUMN IF NOT EXISTS)
+    foreach (var (col, def) in new[]
+    {
+        ("InjuriesSignal",       "TEXT NOT NULL DEFAULT 'none'"),
+        ("PersonalIssuesSignal", "TEXT NOT NULL DEFAULT 'none'"),
+        ("PreviousMatchSignal",  "TEXT NOT NULL DEFAULT 'unknown'"),
+        ("MoraleSignal",         "TEXT NOT NULL DEFAULT 'none'"),
+    })
+    {
+        try { await MigrateDb.Database.ExecuteSqlRawAsync($"ALTER TABLE MoraleContexts ADD COLUMN {col} {def}"); }
+        catch { /* column already exists — safe to ignore */ }
+    }
 }
 
 if (exportReadmeSnapshots)
