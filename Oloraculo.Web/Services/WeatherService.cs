@@ -174,9 +174,8 @@ namespace Oloraculo.Web.Services
 
             var fixtures = (await db.Fixtures
                 .AsNoTracking()
-                .Where(f => f.KickoffUtc >= now && f.KickoffUtc <= cutoff)
                 .ToListAsync(ct))
-                .Where(f => f.City != null)
+                .Where(f => f.KickoffUtc >= now && f.KickoffUtc <= cutoff && f.City != null)
                 .ToList();
 
             var count = 0;

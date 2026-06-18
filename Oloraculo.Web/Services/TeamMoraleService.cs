@@ -69,10 +69,11 @@ namespace Oloraculo.Web.Services
             if (!IsConfigured) return 0;
 
             var now = DateTimeOffset.UtcNow;
-            var fixtures = await db.Fixtures
+            var fixtures = (await db.Fixtures
                 .AsNoTracking()
+                .ToListAsync(ct))
                 .Where(f => f.KickoffUtc >= now)
-                .ToListAsync(ct);
+                .ToList();
 
             var teamIds = fixtures
                 .SelectMany(f => new[] { f.HomeTeamId, f.AwayTeamId })
