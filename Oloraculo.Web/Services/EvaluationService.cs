@@ -112,6 +112,9 @@ namespace Oloraculo.Web.Services
                 .ToList();
         }
 
+        public async Task<IReadOnlyList<PredictionEvaluation>> AllAsync(CancellationToken ct = default) =>
+            await _db.Evaluations.AsNoTracking().OrderBy(e => e.RankedProbabilityScore).ToListAsync(ct);
+
         public async Task<IReadOnlyList<PredictionEvaluation>> BestCallsAsync(int take = 8, CancellationToken ct = default) =>
             await _db.Evaluations.AsNoTracking().OrderBy(e => e.RankedProbabilityScore).Take(take).ToListAsync(ct);
 
