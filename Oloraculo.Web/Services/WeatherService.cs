@@ -1,11 +1,14 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Oloraculo.Web.DAL;
 using Oloraculo.Web.Models;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Text.Json;
 
 namespace Oloraculo.Web.Services
 {
-    public class WeatherService(HttpClient http, OloraculoDbContext db)
+    public class WeatherService(HttpClient http, OloraculoDbContext db, IOptions<OloraculoConfig> options)
     {
         // WC 2026 venue coordinates keyed by city name from CSV
         private static readonly Dictionary<string, (double Lat, double Lon)> VenueCoords = new(StringComparer.OrdinalIgnoreCase)
@@ -92,9 +95,59 @@ namespace Oloraculo.Web.Services
 
         private static readonly (double Min, double Max) DefaultComfort = (14, 28);
 
+        private static readonly string KnownCities = string.Join(", ", VenueCoords.Keys);
+
+        private readonly OloraculoConfig _config = options.Value;
+
+        private async Task<string?> ResolveCityAsync(Fixture fixture, CancellationToken ct)
+        {
+            // Already has city data
+            var city = fixture.City ?? ExtractCity(fixture.Venue);
+            if (!string.IsNullOrWhiteSpace(city)) return city;
+
+            // Ask the LLM — it knows the WC 2026 schedule
+            if (string.IsNullOrWhiteSpace(_config.OpenRouterApiKey)) return null;
+
+            var home = fixture.HomeTeamId.Replace("-", " ");
+            var away = fixture.AwayTeamId.Replace("-", " ");
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, _config.OpenRouterBaseUrl.TrimEnd('/') + "/chat/completions");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _config.OpenRouterApiKey);
+            request.Content = JsonContent.Create(new
+            {
+                model = _config.MoraleModel,
+                messages = new[]
+                {
+                    new { role = "system", content = $"You know the 2026 FIFA World Cup schedule. Reply ONLY with one city name from this list: {KnownCities}. If unknown, reply: unknown" },
+                    new { role = "user",   content = $"What city hosts the WC 2026 match {home} vs {away}?" }
+                },
+                max_tokens = 10
+            });
+
+            try
+            {
+                using var response = await http.SendAsync(request, ct);
+                if (!response.IsSuccessStatusCode) return null;
+                var body = await response.Content.ReadAsStringAsync(ct);
+                using var doc = JsonDocument.Parse(body);
+                var answer = doc.RootElement
+                    .GetProperty("choices")[0]
+                    .GetProperty("message")
+                    .GetProperty("content")
+                    .GetString()?.Trim();
+
+                if (string.IsNullOrWhiteSpace(answer) || answer.Equals("unknown", StringComparison.OrdinalIgnoreCase))
+                    return null;
+
+                // Validate it's actually a known city
+                return VenueCoords.ContainsKey(answer) ? answer : null;
+            }
+            catch { return null; }
+        }
+
         public async Task<FixtureWeatherContext?> FetchAndSaveAsync(Fixture fixture, CancellationToken ct = default)
         {
-            var city = fixture.City ?? ExtractCity(fixture.Venue);
+            var city = await ResolveCityAsync(fixture, ct);
             if (string.IsNullOrWhiteSpace(city))
                 return null;
 
