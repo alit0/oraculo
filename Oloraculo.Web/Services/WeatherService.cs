@@ -94,13 +94,15 @@ namespace Oloraculo.Web.Services
 
         public async Task<FixtureWeatherContext?> FetchAndSaveAsync(Fixture fixture, CancellationToken ct = default)
         {
-            if (!fixture.KickoffUtc.HasValue || string.IsNullOrWhiteSpace(fixture.City))
+            var city = fixture.City ?? ExtractCity(fixture.Venue);
+            if (string.IsNullOrWhiteSpace(city))
                 return null;
 
-            if (!VenueCoords.TryGetValue(fixture.City, out var coords))
+            if (!VenueCoords.TryGetValue(city, out var coords))
                 return null;
 
-            var kickoff = fixture.KickoffUtc.Value;
+            // If no kickoff time, forecast for tomorrow as best approximation
+            var kickoff = fixture.KickoffUtc ?? DateTimeOffset.UtcNow.AddDays(1);
             var date = kickoff.UtcDateTime.ToString("yyyy-MM-dd");
             var kickoffHour = kickoff.UtcDateTime.Hour;
 
@@ -169,13 +171,10 @@ namespace Oloraculo.Web.Services
 
         public async Task<int> RefreshUpcomingAsync(CancellationToken ct = default)
         {
-            var now = DateTimeOffset.UtcNow;
-            var cutoff = now.AddDays(16);
-
             var fixtures = (await db.Fixtures
                 .AsNoTracking()
                 .ToListAsync(ct))
-                .Where(f => f.KickoffUtc >= now && f.KickoffUtc <= cutoff && f.City != null)
+                .Where(f => !f.IsPlayed)
                 .ToList();
 
             var count = 0;
@@ -186,6 +185,32 @@ namespace Oloraculo.Web.Services
             }
 
             return count;
+        }
+
+        private static string? ExtractCity(string? venue)
+        {
+            if (string.IsNullOrWhiteSpace(venue)) return null;
+            // Match known WC 2026 venue names to cities
+            return venue switch
+            {
+                var v when v.Contains("Hard Rock",       StringComparison.OrdinalIgnoreCase) => "Miami Gardens",
+                var v when v.Contains("Mercedes-Benz",   StringComparison.OrdinalIgnoreCase) => "Atlanta",
+                var v when v.Contains("AT&T",            StringComparison.OrdinalIgnoreCase) => "Arlington",
+                var v when v.Contains("NRG",             StringComparison.OrdinalIgnoreCase) => "Houston",
+                var v when v.Contains("Arrowhead",       StringComparison.OrdinalIgnoreCase) => "Kansas City",
+                var v when v.Contains("Gillette",        StringComparison.OrdinalIgnoreCase) => "Foxborough",
+                var v when v.Contains("MetLife",         StringComparison.OrdinalIgnoreCase) => "East Rutherford",
+                var v when v.Contains("Lincoln",         StringComparison.OrdinalIgnoreCase) => "Philadelphia",
+                var v when v.Contains("Lumen",           StringComparison.OrdinalIgnoreCase) => "Seattle",
+                var v when v.Contains("SoFi",            StringComparison.OrdinalIgnoreCase) => "Inglewood",
+                var v when v.Contains("Levi",            StringComparison.OrdinalIgnoreCase) => "Santa Clara",
+                var v when v.Contains("BC Place",        StringComparison.OrdinalIgnoreCase) => "Vancouver",
+                var v when v.Contains("BMO",             StringComparison.OrdinalIgnoreCase) => "Toronto",
+                var v when v.Contains("Azteca",          StringComparison.OrdinalIgnoreCase) => "Mexico City",
+                var v when v.Contains("BBVA",            StringComparison.OrdinalIgnoreCase) => "Guadalupe",
+                var v when v.Contains("Akron",           StringComparison.OrdinalIgnoreCase) => "Zapopan",
+                _ => null
+            };
         }
 
         private static double ClimateAdvantage(double tempC, string teamId)
