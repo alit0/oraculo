@@ -59,6 +59,18 @@ builder.Services.AddHttpClient<AvailabilityNewsService>((sp, client) =>
     client.Timeout = TimeSpan.FromSeconds(60);
     client.DefaultRequestHeaders.UserAgent.ParseAdd(options.AvailabilityRefreshUserAgent);
 });
+builder.Services.AddHttpClient<WeatherService>((_, client) =>
+{
+    client.Timeout = TimeSpan.FromSeconds(15);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("Oloraculo");
+});
+builder.Services.AddHttpClient<TeamMoraleService>((sp, client) =>
+{
+    var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<OloraculoConfig>>().Value;
+    client.BaseAddress = new Uri(options.OpenRouterBaseUrl);
+    client.Timeout = TimeSpan.FromSeconds(60);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("Oloraculo");
+});
 
 var app = builder.Build();
 var exportReadmeSnapshots = args.Any(arg => string.Equals(arg, "--export-readme-snapshots", StringComparison.OrdinalIgnoreCase));
@@ -98,6 +110,30 @@ using (var Scope = app.Services.CreateScope())
     }
 
     await CsvImporterService.ImportIfNeededAsync();
+
+    // Ensure new tables exist (idempotent for existing DBs)
+    var MigrateDb = Scope.ServiceProvider.GetRequiredService<OloraculoDbContext>();
+    await MigrateDb.Database.ExecuteSqlRawAsync("""
+        CREATE TABLE IF NOT EXISTS WeatherContexts (
+            FixtureId TEXT NOT NULL PRIMARY KEY,
+            TempC REAL,
+            HumidityPct REAL,
+            PrecipPct REAL,
+            Condition TEXT,
+            HomeClimateAdvantage REAL NOT NULL DEFAULT 0,
+            AwayClimateAdvantage REAL NOT NULL DEFAULT 0,
+            UpdatedAt TEXT NOT NULL DEFAULT ''
+        )
+    """);
+    await MigrateDb.Database.ExecuteSqlRawAsync("""
+        CREATE TABLE IF NOT EXISTS MoraleContexts (
+            TeamId TEXT NOT NULL PRIMARY KEY,
+            MoraleAdjustment REAL NOT NULL DEFAULT 0,
+            Summary TEXT NOT NULL DEFAULT '',
+            Signal TEXT NOT NULL DEFAULT 'neutral',
+            UpdatedAt TEXT NOT NULL DEFAULT ''
+        )
+    """);
 }
 
 if (exportReadmeSnapshots)

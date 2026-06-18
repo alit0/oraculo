@@ -12,6 +12,9 @@
         public IReadOnlyList<MatchResult> HomeRecentMatchHistory { get; set; }
         public IReadOnlyList<MatchResult> AwayRecentMatchHistory { get; set; }
         public FixtureContext? FixtureContext { get; set; }
+        public FixtureWeatherContext? WeatherContext { get; set; }
+        public TeamMoraleContext? HomeMoraleContext { get; set; }
+        public TeamMoraleContext? AwayMoraleContext { get; set; }
         public string HomeTeamId => HomeTeam.Id;
         public string AwayTeamId => AwayTeam.Id;
     }

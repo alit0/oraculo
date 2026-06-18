@@ -20,6 +20,8 @@
         public string OpenRouterBaseUrl { get; set; } = "https://openrouter.ai/api/v1/";
         public string? OpenRouterApiKey { get; set; }
         public string OpenRouterModel { get; set; } = "openai/gpt-4o-mini";
+        public string MoraleModel { get; set; } = "perplexity/sonar";
+        public int MoraleStaleAfterHours { get; set; } = 12;
         public string[] AvailabilitySourceUrls { get; set; } =
         [
             "https://www.espn.com/soccer/story/_/id/48572979/2026-fifa-world-cup-injuries-tracker-which-stars-miss-latest-info",

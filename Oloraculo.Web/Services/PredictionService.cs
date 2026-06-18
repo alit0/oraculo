@@ -78,7 +78,10 @@ namespace Oloraculo.Web.Services
                 AwayFifaRank = await LatestRatingAsync(fixture.AwayTeamId, RatingTypeEnum.Fifa, ct),
                 HomeRecentMatchHistory = await RecentResultsAsync(fixture.HomeTeamId, ct),
                 AwayRecentMatchHistory = await RecentResultsAsync(fixture.AwayTeamId, ct),
-                FixtureContext = await _db.FixtureContexts.FindAsync([fixture.Id], ct)
+                FixtureContext  = await _db.FixtureContexts.FindAsync([fixture.Id], ct),
+                WeatherContext  = await _db.WeatherContexts.FindAsync([fixture.Id], ct),
+                HomeMoraleContext = await _db.MoraleContexts.FindAsync([fixture.HomeTeamId], ct),
+                AwayMoraleContext = await _db.MoraleContexts.FindAsync([fixture.AwayTeamId], ct)
             };
         }
 

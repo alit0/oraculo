@@ -77,6 +77,34 @@ namespace Oloraculo.Web.Predictors
                 missingFeatures.AddRange(["disponibilidad de jugadores", "alineaciones", "cuotas"]);
             }
 
+            if (context.WeatherContext is { } weather)
+            {
+                homeGoals *= 1.0 + weather.HomeClimateAdvantage;
+                awayGoals *= 1.0 + weather.AwayClimateAdvantage;
+                usedFeatures.Add("Clima y ventaja climática");
+                var tempStr = weather.TempC.HasValue ? $"{weather.TempC:0}°C" : "?";
+                drivers.Add($"Clima: {weather.Condition ?? "?"} {tempStr}, humedad {weather.HumidityPct:0}%. " +
+                            $"Ventaja climática: {context.HomeTeam.Name} {weather.HomeClimateAdvantage:+0.0%;-0.0%;0%}, " +
+                            $"{context.AwayTeam.Name} {weather.AwayClimateAdvantage:+0.0%;-0.0%;0%}.");
+                appliedContext = true;
+            }
+
+            if (context.HomeMoraleContext is { } homeM && homeM.MoraleAdjustment != 0)
+            {
+                homeGoals *= 1.0 + homeM.MoraleAdjustment;
+                usedFeatures.Add($"Moral {context.HomeTeam.Name}");
+                drivers.Add($"Moral {context.HomeTeam.Name} ({homeM.Signal}): {homeM.Summary}");
+                appliedContext = true;
+            }
+
+            if (context.AwayMoraleContext is { } awayM && awayM.MoraleAdjustment != 0)
+            {
+                awayGoals *= 1.0 + awayM.MoraleAdjustment;
+                usedFeatures.Add($"Moral {context.AwayTeam.Name}");
+                drivers.Add($"Moral {context.AwayTeam.Name} ({awayM.Signal}): {awayM.Summary}");
+                appliedContext = true;
+            }
+
             var scoreline = _goalModel.BuildScoreline(homeGoals, awayGoals);
             usedFeatures.AddRange(
             [
