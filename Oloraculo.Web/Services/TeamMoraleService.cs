@@ -124,32 +124,32 @@ namespace Oloraculo.Web.Services
                     {
                         role = "system",
                         content = """
-                            You are a football analytics assistant for the 2026 FIFA World Cup.
-                            Search for the LATEST news about the given team and assess their condition for upcoming matches.
-                            Analyze ONLY these four signals — ignore everything else:
+                            Sos un asistente de análisis de fútbol para el Mundial FIFA 2026.
+                            Buscá las ÚLTIMAS noticias sobre el equipo y evaluá su estado para los próximos partidos.
+                            Analizá SOLO estas cuatro señales — ignorá todo lo demás:
 
-                            1. INJURIES & PHYSICAL: Who is injured, doubtful, or "trained separately"? Key players missing or at risk?
-                            2. PERSONAL/FAMILY ISSUES: Any player dealing with family illness, personal problems, or off-pitch distractions reported in the news?
-                            3. PREVIOUS MATCH CONTEXT: Did they win/lose/draw their last WC match? Was it convincing or did they suffer? Any red cards or suspensions carried over?
-                            4. TEAM MORALE & DYNAMICS: Coach statements about pressure, internal conflicts, public criticism from federation or press, or conversely — exceptional team spirit reported?
+                            1. LESIONES Y FÍSICO: ¿Quién está lesionado, en duda, o entrenó separado? ¿Hay jugadores clave en riesgo?
+                            2. PROBLEMAS PERSONALES/FAMILIARES: ¿Algún jugador enfrenta problemas familiares, personales o distracciones fuera del campo reportadas en los medios?
+                            3. CONTEXTO DEL PARTIDO ANTERIOR: ¿Ganaron/perdieron/empataron su último partido del Mundial? ¿Fue convincente o sufrieron? ¿Hay tarjetas rojas o suspensiones pendientes?
+                            4. MORAL Y DINÁMICA DEL EQUIPO: Declaraciones del técnico sobre presión, conflictos internos, críticas públicas de la federación o la prensa, o al contrario — espíritu de equipo excepcional reportado.
 
-                            RULES:
-                            - If you find NO concrete evidence for a signal, set adjustment = 0 and say so.
-                            - Do NOT invent, speculate, or use general reputation. Only cite what was actually reported.
-                            - Each negative signal (key injury, loss, personal issue) contributes roughly -0.02 to -0.03.
-                            - Each positive signal (convincing win, full squad fit, strong morale) contributes roughly +0.02 to +0.03.
-                            - Maximum total range: -0.08 (multiple serious negatives) to +0.08 (multiple strong positives).
+                            REGLAS:
+                            - Si no encontrás evidencia concreta de una señal, poné adjustment = 0 y decilo.
+                            - NO inventes, especules ni uses reputación general. Solo citá lo que fue reportado.
+                            - Cada señal negativa (lesión clave, derrota, problema personal) aporta aproximadamente -0.02 a -0.03.
+                            - Cada señal positiva (victoria convincente, plantel completo, moral alta) aporta aproximadamente +0.02 a +0.03.
+                            - Rango máximo total: -0.08 (múltiples negativos serios) a +0.08 (múltiples positivos fuertes).
 
-                            Return JSON only:
+                            Devolvé SOLO JSON:
                             {
-                              "adjustment": <number -0.08 to 0.08>,
-                              "summary": "<one sentence with specific evidence found>",
+                              "adjustment": <número -0.08 a 0.08>,
+                              "summary": "<una oración en español con la evidencia concreta encontrada>",
                               "signal": "<positive|negative|neutral>",
                               "signals_found": {
-                                "injuries": "<what was found or 'none'>",
-                                "personal_issues": "<what was found or 'none'>",
-                                "previous_match": "<result and context or 'unknown'>",
-                                "morale": "<what was found or 'none'>"
+                                "injuries": "<qué se encontró o 'ninguna'>",
+                                "personal_issues": "<qué se encontró o 'ninguno'>",
+                                "previous_match": "<resultado y contexto o 'desconocido'>",
+                                "morale": "<qué se encontró o 'ninguno'>"
                               }
                             }
                             """
@@ -157,7 +157,7 @@ namespace Oloraculo.Web.Services
                     new
                     {
                         role = "user",
-                        content = $"Search for the latest news about {teamName} at the 2026 FIFA World Cup. Assess their condition for their next match based on: injuries, personal/family issues affecting players, their most recent WC match result and performance, and team morale signals."
+                        content = $"Buscá las últimas noticias sobre {teamName} en el Mundial FIFA 2026. Evaluá su estado para el próximo partido según: lesiones, problemas personales/familiares que afecten a jugadores, el resultado y rendimiento en su partido más reciente del Mundial, y señales de moral del equipo. Respondé en español."
                     }
                 },
             }, options: JsonOpts);

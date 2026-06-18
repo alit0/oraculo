@@ -93,25 +93,25 @@ namespace Oloraculo.Web.Services
                     {
                         role = "system",
                         content = """
-                            You are a weather analyst for the 2026 FIFA World Cup.
-                            Search for the match schedule and current weather forecasts.
-                            Return ONLY a JSON object with these fields:
+                            Eres un analista meteorológico para el Mundial FIFA 2026.
+                            Buscá el fixture y el pronóstico del tiempo actual.
+                            Devolvé SOLO un objeto JSON con estos campos:
                             {
-                              "city": "<host city name>",
-                              "venue": "<stadium name>",
-                              "tempC": <expected temperature at match time in Celsius as number>,
-                              "humidityPct": <expected humidity 0-100 as number>,
-                              "precipPct": <rain probability 0-100 as number>,
-                              "condition": "<weather condition: Clear, Partly cloudy, Overcast, Rain, Thunderstorm, etc>"
+                              "city": "<nombre de la ciudad sede>",
+                              "venue": "<nombre del estadio>",
+                              "tempC": <temperatura esperada al momento del partido en Celsius como número>,
+                              "humidityPct": <humedad esperada 0-100 como número>,
+                              "precipPct": <probabilidad de lluvia 0-100 como número>,
+                              "condition": "<condición en español: Despejado, Parcialmente nublado, Nublado, Lluvia, Tormenta, etc>"
                             }
-                            If you cannot find the match or weather data, return {"city": "unknown"}.
-                            Do NOT wrap in markdown code blocks. Return raw JSON only.
+                            Si no podés encontrar el partido o el clima, devolvé {"city": "unknown"}.
+                            NO uses bloques de código markdown. Devolvé JSON puro.
                             """
                     },
                     new
                     {
                         role = "user",
-                        content = $"Search for: 2026 FIFA World Cup match {home} vs {away} on {dateHint}. Find the host city, stadium, and weather forecast at match time. Return the JSON."
+                        content = $"Buscá: partido del Mundial FIFA 2026 {home} vs {away} del {dateHint}. Encontrá la ciudad sede, el estadio y el pronóstico del tiempo al momento del partido. Devolvé el JSON."
                     }
                 }
             });
