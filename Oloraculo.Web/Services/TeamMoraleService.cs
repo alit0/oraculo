@@ -9,7 +9,8 @@ using System.Text.Json.Serialization;
 
 namespace Oloraculo.Web.Services
 {
-    public class TeamMoraleService(HttpClient http, OloraculoDbContext db, IOptions<OloraculoConfig> options)
+    public class TeamMoraleService(HttpClient http, OloraculoDbContext db, IOptions<OloraculoConfig> options,
+        ILogger<TeamMoraleService> logger)
     {
         private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web)
         {
@@ -58,8 +59,9 @@ namespace Oloraculo.Web.Services
                 await db.SaveChangesAsync(ct);
                 return morale;
             }
-            catch
+            catch (Exception ex)
             {
+                logger.LogWarning("Morale refresh failed for team {TeamId}: {Error}", teamId, ex.Message);
                 return null;
             }
         }
@@ -74,15 +76,26 @@ namespace Oloraculo.Web.Services
                 .Where(f => !f.IsPlayed)
                 .ToList();
 
+            logger.LogInformation("Morale refresh: {Count} unplayed fixtures found", fixtures.Count);
+
             var teamIds = fixtures
                 .SelectMany(f => new[] { f.HomeTeamId, f.AwayTeamId })
+                .Where(id => !string.IsNullOrWhiteSpace(id))
                 .Distinct()
                 .ToList();
 
-            var teams = await db.Teams
-                .AsNoTracking()
-                .Where(t => teamIds.Contains(t.Id))
-                .ToDictionaryAsync(t => t.Id, t => t.Name, ct);
+            logger.LogInformation("Morale refresh: {Count} unique team IDs", teamIds.Count);
+
+            // Build name map: DB name if found, else humanize the ID
+            var dbTeams = await db.Teams.AsNoTracking()
+                .ToDictionaryAsync(t => t.Id, t => t.Name, StringComparer.OrdinalIgnoreCase, ct);
+
+            var teams = teamIds.ToDictionary(
+                id => id,
+                id => dbTeams.TryGetValue(id, out var n) ? n : id.Replace("-", " "),
+                StringComparer.OrdinalIgnoreCase);
+
+            logger.LogInformation("Morale refresh: {Count} teams to analyze", teams.Count);
 
             var count = 0;
             foreach (var (id, name) in teams)

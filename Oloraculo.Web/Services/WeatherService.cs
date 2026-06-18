@@ -115,7 +115,7 @@ namespace Oloraculo.Web.Services
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _config.OpenRouterApiKey);
             request.Content = JsonContent.Create(new
             {
-                model = _config.MoraleModel,
+                model = "openai/gpt-4o-mini",
                 messages = new[]
                 {
                     new { role = "system", content = $"You know the 2026 FIFA World Cup schedule. Reply ONLY with one city name from this list: {KnownCities}. If unknown, reply: unknown" },
