@@ -35,20 +35,31 @@ namespace Oloraculo.Web.Services
             DateOnly? fifaDate = null;
             DateOnly? eloDate = null;
 
-            try
+            var fifaPath = Path.Combine(dataDirectory, OloraculoDataFiles.FifaRankingsCsv);
+            var fifaAlreadyFresh = File.Exists(fifaPath) &&
+                File.GetLastWriteTimeUtc(fifaPath).Date == DateTime.UtcNow.Date;
+
+            if (fifaAlreadyFresh)
             {
-                var raw = await _http.GetStringAsync(_config.FifaRankingsRawUrl, ct);
-                var rows = ParseFifaRankings(raw);
-                var csv = ToFifaCsv(rows);
-                await WriteAtomicAsync(Path.Combine(dataDirectory, OloraculoDataFiles.FifaRankingsCsv), csv, ct);
-                fifaRows = rows.Count;
-                fifaDate = DateOnly.ParseExact(rows[0].RankingDate, "yyyy-MM-dd", CultureInfo.InvariantCulture);
-                updatedFiles.Add(OloraculoDataFiles.FifaRankingsCsv);
-                notes.Add($"Rankings FIFA actualizados: {fifaRows} filas con fecha {fifaDate:yyyy-MM-dd}.");
+                notes.Add("Rankings FIFA ya actualizados hoy, saltando fetch de Wikipedia.");
             }
-            catch (Exception ex)
+            else
             {
-                errors.Add($"No se pudieron actualizar los rankings FIFA: {ex.Message}");
+                try
+                {
+                    var raw = await _http.GetStringAsync(_config.FifaRankingsRawUrl, ct);
+                    var rows = ParseFifaRankings(raw);
+                    var csv = ToFifaCsv(rows);
+                    await WriteAtomicAsync(fifaPath, csv, ct);
+                    fifaRows = rows.Count;
+                    fifaDate = DateOnly.ParseExact(rows[0].RankingDate, "yyyy-MM-dd", CultureInfo.InvariantCulture);
+                    updatedFiles.Add(OloraculoDataFiles.FifaRankingsCsv);
+                    notes.Add($"Rankings FIFA actualizados: {fifaRows} filas con fecha {fifaDate:yyyy-MM-dd}.");
+                }
+                catch (Exception ex)
+                {
+                    errors.Add($"No se pudieron actualizar los rankings FIFA: {ex.Message}");
+                }
             }
 
             var lookbackDays = Math.Max(0, _config.EloRefreshMaxLookbackDays);
