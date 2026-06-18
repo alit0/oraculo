@@ -138,7 +138,7 @@
                         </MudText>
                         @if (!string.IsNullOrWhiteSpace(_selected.Venue) || _selected.KickoffUtc is not null)
                         {
-                            <MudText Typo="Typo.caption" Color="Color.Secondary">@(_selected.KickoffUtc?.FormatArgentina("yyyy-MM-dd HH:mm") is {} kt ? $"{kt} ARG" : "") @_selected.Venue @_selected.Status</MudText>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">@(_selected.KickoffUtc?.FormatArgentina("yyyy-MM-dd HH:mm") is {} kt ? $"{kt} ARG" : "") @_selected.Venue @(int.TryParse(_selected.Status, out _) ? "" : _selected.Status)</MudText>
                         }
                         <MudStack Row="true" Spacing="1" Class="action-row mt-2">
                             <BusyButton Text="Predecir ahora"
