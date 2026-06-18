@@ -7,6 +7,8 @@
 @inject ApiFootballService Api
 @inject AvailabilityNewsService Availability
 @inject ISnackbar Snackbar
+@inject WeatherService Weather
+@inject TeamMoraleService MoraleService
 
 <PageTitle>Partidos</PageTitle>
 
@@ -189,6 +191,24 @@
                             <BusyButton Text="@(_saved ? "Snapshot guardado" : "Guardar predicción")" BusyText="Guardando" IsBusy="_saving" Disabled="@(_saved || _result is null)" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Save" OnClick="SaveSnapshot" />
                             <BusyButton Text="Actualizar contexto API" BusyText="Actualizando" IsBusy="_refreshing" Variant="Variant.Outlined" Color="Color.Secondary" Icon="@Icons.Material.Filled.Sync" OnClick="RefreshContext" />
                         </MudStack>
+                        <MudStack Row="true" Spacing="1" Class="action-row">
+                            <BusyButton Text="Analizar clima"
+                                        BusyText="Buscando clima..."
+                                        IsBusy="_refreshingWeather"
+                                        Disabled="@_refreshingMorale"
+                                        Variant="Variant.Outlined"
+                                        Color="Color.Secondary"
+                                        Icon="@Icons.Material.Filled.WbSunny"
+                                        OnClick="RefreshWeatherForSelected" />
+                            <BusyButton Text="Analizar moral"
+                                        BusyText="Analizando equipos..."
+                                        IsBusy="_refreshingMorale"
+                                        Disabled="@(!MoraleService.IsConfigured || _refreshingWeather)"
+                                        Variant="Variant.Outlined"
+                                        Color="Color.Secondary"
+                                        Icon="@Icons.Material.Filled.Psychology"
+                                        OnClick="RefreshMoraleForSelected" />
+                        </MudStack>
                         @if (_refreshing || _loadingSnapshot)
                         {
                             <MudProgressLinear Class="inline-progress" Color="Color.Secondary" Indeterminate="true" />
@@ -270,6 +290,8 @@
     private bool _busy;
     private bool _predicting;
     private bool _saving;
+    private bool _refreshingWeather;
+    private bool _refreshingMorale;
     private bool _saved;
     private bool _loadingSnapshot;
     private bool _refreshing;
@@ -543,5 +565,58 @@
         var source = snapshot.BatchId.HasValue ? "fixture completo" : "partido";
         var status = snapshot.IsValid ? source : "no disponible";
         return $"{snapshot.CreatedAt.ToArgentina():g} · {status}";
+    }
+
+    private async Task RefreshWeatherForSelected()
+    {
+        if (_selected is null) return;
+        _refreshingWeather = true;
+        try
+        {
+            var result = await Weather.FetchAndSaveAsync(_selected);
+            if (result is not null)
+                Snackbar.Add($"Clima actualizado: {result.TempC}°C, {result.Condition}", Severity.Success);
+            else
+                Snackbar.Add("No se pudo obtener el clima para este partido.", Severity.Warning);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error al actualizar clima: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _refreshingWeather = false;
+        }
+    }
+
+    private async Task RefreshMoraleForSelected()
+    {
+        if (_selected is null) return;
+        _refreshingMorale = true;
+        try
+        {
+            var homeName = Name(_selected.HomeTeamId);
+            var awayName = Name(_selected.AwayTeamId);
+
+            var home = await MoraleService.RefreshTeamAsync(_selected.HomeTeamId, homeName);
+            var away = await MoraleService.RefreshTeamAsync(_selected.AwayTeamId, awayName);
+
+            var parts = new List<string>();
+            if (home is not null) parts.Add($"{homeName}: {home.Signal} ({home.MoraleAdjustment:+0.##;-0.##;0})");
+            if (away is not null) parts.Add($"{awayName}: {away.Signal} ({away.MoraleAdjustment:+0.##;-0.##;0})");
+
+            if (parts.Count > 0)
+                Snackbar.Add($"Moral: {string.Join(" | ", parts)}", Severity.Success);
+            else
+                Snackbar.Add("No se pudo analizar la moral de este partido.", Severity.Warning);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error al analizar moral: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _refreshingMorale = false;
+        }
     }
 }
