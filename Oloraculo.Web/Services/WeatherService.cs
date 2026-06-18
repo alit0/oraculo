@@ -172,10 +172,12 @@ namespace Oloraculo.Web.Services
             var now = DateTimeOffset.UtcNow;
             var cutoff = now.AddDays(16);
 
-            var fixtures = await db.Fixtures
+            var fixtures = (await db.Fixtures
                 .AsNoTracking()
-                .Where(f => f.KickoffUtc >= now && f.KickoffUtc <= cutoff && f.City != null)
-                .ToListAsync(ct);
+                .Where(f => f.KickoffUtc >= now && f.KickoffUtc <= cutoff)
+                .ToListAsync(ct))
+                .Where(f => f.City != null)
+                .ToList();
 
             var count = 0;
             foreach (var fixture in fixtures)
