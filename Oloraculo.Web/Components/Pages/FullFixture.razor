@@ -328,7 +328,7 @@
             _predictions = result.Predictions.ToDictionary(prediction => prediction.Fixture.Id, StringComparer.Ordinal);
             _predictionErrors.Clear();
             _savedCount = _predictions.Count;
-            _predictedAt = snapshot.CreatedAt.ToLocalTime();
+            _predictedAt = snapshot.CreatedAt.ToArgentina();
             _activeFullFixtureSnapshotId = snapshot.Id;
             _selectedFullFixtureSnapshotId = snapshot.Id;
             if (showToast)
@@ -386,10 +386,10 @@
         if (fixture.KickoffUtc is null)
             return "Fecha pendiente";
 
-        var local = fixture.KickoffUtc.Value.ToLocalTime();
+        var local = fixture.KickoffUtc.Value.ToArgentina();
         return string.IsNullOrWhiteSpace(fixture.Venue)
-            ? local.ToString("dd MMM HH:mm")
-            : $"{local:dd MMM HH:mm} · {fixture.Venue}";
+            ? local.ToString("dd MMM HH:mm") + " ARG"
+            : $"{local:dd MMM HH:mm} ARG · {fixture.Venue}";
     }
 
     private static string ScoreText(Fixture fixture, MatchPredictionResult? prediction)
@@ -417,6 +417,6 @@
     private static string FullFixtureSnapshotText(FullFixtureSnapshotSummary snapshot)
     {
         var status = snapshot.IsValid ? $"{snapshot.FixtureCount} partidos" : "no disponible";
-        return $"{snapshot.CreatedAt.ToLocalTime():g} · {status}";
+        return $"{snapshot.CreatedAt.ToArgentina():g} · {status}";
     }
 }

@@ -24,12 +24,60 @@
     <MudGrid Spacing="2">
         <MudItem xs="12" lg="5">
             <MudPaper Class="surface-card fixture-list" Elevation="0">
-                <MudText Typo="Typo.h6">Partidos</MudText>
+                <MudText Typo="Typo.h6" Class="mb-2">Partidos</MudText>
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="mb-2">
+                    <MudDatePicker @bind-Date="_filterDateTime"
+                                   Placeholder="Todas las fechas"
+                                   DateFormat="dd/MM/yyyy"
+                                   Editable="true"
+                                   Clearable="true"
+                                   Dense="true"
+                                   FullWidth="true"
+                                   Variant="Variant.Outlined"
+                                   Class="flex-1 date-filter-picker" />
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="SetToday">Hoy</MudButton>
+                </MudStack>
                 @if (!_loaded)
                 {
                     <MudSkeleton Height="34px" Class="skeleton-row" />
                     <MudSkeleton Height="34px" Class="skeleton-row" />
                     <MudSkeleton Height="34px" Class="skeleton-row" />
+                }
+                else if (!FilteredFixtures.Any())
+                {
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">No hay partidos para esta fecha.</MudAlert>
+                }
+                else if (_filterDateTime.HasValue)
+                {
+                    @foreach (var fixture in FilteredFixtures)
+                    {
+                        <div class="fixture-row @SelectedClass(fixture)">
+                            <MudButton Variant="Variant.Text"
+                                       Size="Size.Small"
+                                       Color="Color.Primary"
+                                       Disabled="@_busy"
+                                       OnClick="() => Select(fixture)"
+                                       StartIcon="@Icons.Material.Filled.Visibility">
+                                Ver
+                            </MudButton>
+                            <MudText Typo="Typo.body2">
+                                <span class="matchup-label">
+                                    <TeamLabel TeamId="@fixture.HomeTeamId" Name="@Name(fixture.HomeTeamId)" Compact="true" />
+                                    <span>vs</span>
+                                    <TeamLabel TeamId="@fixture.AwayTeamId" Name="@Name(fixture.AwayTeamId)" Compact="true" />
+                                </span>
+                            </MudText>
+                            <MudSpacer />
+                            @if (fixture.IsPlayed && fixture.HomeGoals.HasValue && fixture.AwayGoals.HasValue)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">@fixture.HomeGoals-@fixture.AwayGoals</MudChip>
+                            }
+                            else if (fixture.KickoffUtc.HasValue)
+                            {
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">@fixture.KickoffUtc.Value.FormatArgentina("HH:mm") ARG</MudText>
+                            }
+                        </div>
+                    }
                 }
                 else
                 {
@@ -89,7 +137,7 @@
                         </MudText>
                         @if (!string.IsNullOrWhiteSpace(_selected.Venue) || _selected.KickoffUtc is not null)
                         {
-                            <MudText Typo="Typo.caption" Color="Color.Secondary">@_selected.KickoffUtc?.ToString("yyyy-MM-dd HH:mm 'UTC'") @_selected.Venue @_selected.Status</MudText>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">@(_selected.KickoffUtc?.FormatArgentina("yyyy-MM-dd HH:mm") is {} kt ? $"{kt} ARG" : "") @_selected.Venue @_selected.Status</MudText>
                         }
                         <MudStack Row="true" Spacing="1" Class="action-row mt-2">
                             <BusyButton Text="Predecir ahora"
@@ -218,6 +266,7 @@
     private MatchPredictionResult? _result;
     private IReadOnlyList<MatchSnapshotSummary> _matchSnapshots = [];
     private List<AvailabilityClaim> _availabilityClaims = [];
+    private DateTime? _filterDateTime;
     private bool _loaded;
     private bool _busy;
     private bool _predicting;
@@ -234,8 +283,20 @@
     private string _error = "";
     private string _resultSource = "";
 
+    private IEnumerable<Fixture> FilteredFixtures => _filterDateTime.HasValue
+        ? _fixtures
+            .Where(f => f.KickoffUtc.HasValue &&
+                        DateOnly.FromDateTime(f.KickoffUtc.Value.ToArgentina().DateTime) ==
+                        DateOnly.FromDateTime(_filterDateTime.Value))
+            .OrderBy(f => f.KickoffUtc)
+        : _fixtures;
+
+    private void SetToday() =>
+        _filterDateTime = DateTimeOffset.UtcNow.ToArgentina().DateTime.Date;
+
     protected override async Task OnInitializedAsync()
     {
+        SetToday();
         await LoadFixtures();
         _names = await Db.Teams.ToDictionaryAsync(t => t.Id, t => t.Name);
         _loaded = true;
@@ -351,7 +412,7 @@
             _saved = true;
             _activeMatchSnapshotId = snapshot.Id;
             _selectedMatchSnapshotId = snapshot.Id;
-            _resultSource = $"Snapshot guardado {snapshot.CreatedAt.ToLocalTime():g}";
+            _resultSource = $"Snapshot guardado {snapshot.CreatedAt.ToArgentina():g}";
             if (showToast)
                 Snackbar.Add("Snapshot de partido cargado.", Severity.Success);
         }
@@ -379,7 +440,7 @@
             _activeMatchSnapshotId = snapshot.Id;
             await RefreshMatchSnapshotsForSelected();
             _selectedMatchSnapshotId = snapshot.Id;
-            _resultSource = $"Snapshot guardado {snapshot.CreatedAt.ToLocalTime():g}";
+            _resultSource = $"Snapshot guardado {snapshot.CreatedAt.ToArgentina():g}";
             Snackbar.Add("Snapshot de predicción guardado.", Severity.Success);
         }
         catch (Exception ex)
@@ -482,6 +543,6 @@
     {
         var source = snapshot.BatchId.HasValue ? "fixture completo" : "partido";
         var status = snapshot.IsValid ? source : "no disponible";
-        return $"{snapshot.CreatedAt.ToLocalTime():g} · {status}";
+        return $"{snapshot.CreatedAt.ToArgentina():g} · {status}";
     }
 }

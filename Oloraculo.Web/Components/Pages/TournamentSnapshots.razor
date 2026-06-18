@@ -42,7 +42,7 @@
                     <MudTh></MudTh>
                 </HeaderContent>
                 <RowTemplate>
-                    <MudTd DataLabel="Fecha">@context.CreatedAt.ToLocalTime().ToString("g")</MudTd>
+                    <MudTd DataLabel="Fecha">@context.CreatedAt.ToArgentina().ToString("g")</MudTd>
                     <MudTd DataLabel="Modelo">@context.ModelName</MudTd>
                     <MudTd DataLabel="Simulaciones" Class="num">@(context.Simulations?.ToString("N0") ?? "-")</MudTd>
                     <MudTd DataLabel="Hash">@ShortHash(context.InputSummaryHash)</MudTd>
@@ -162,7 +162,7 @@
             }
 
             _projection = result.Projection;
-            _projectionSource = $"Snapshot guardado {summary.CreatedAt.ToLocalTime():g}";
+            _projectionSource = $"Snapshot guardado {summary.CreatedAt.ToArgentina():g}";
             _activeSnapshotId = summary.Id;
             Snackbar.Add("Snapshot cargado.", Severity.Success);
         }

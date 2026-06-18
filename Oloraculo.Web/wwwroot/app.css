@@ -351,6 +351,15 @@ body {
     font-variant-numeric: tabular-nums;
 }
 
+.mud-input.mud-input-outlined.mud-input-adorned-end.mud-shrink.mud-typography-subtitle1.mud-input-sizing-fixed {
+    max-width: 100% !important;
+}
+
+.mud-picker-popover-paper {
+    max-width: unset !important;
+    min-width: 300px;
+}
+
 .fixture-prob-labels span:nth-child(2) {
     text-align: center;
 }
