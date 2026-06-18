@@ -11,32 +11,8 @@ namespace Oloraculo.Web.Services
     public class WeatherService(HttpClient http, OloraculoDbContext db, IOptions<OloraculoConfig> options,
         ILogger<WeatherService> logger)
     {
-        // WC 2026 venue coordinates keyed by city name from CSV
-        private static readonly Dictionary<string, (double Lat, double Lon)> VenueCoords = new(StringComparer.OrdinalIgnoreCase)
-        {
-            { "Miami Gardens",   (25.958,  -80.239) },
-            { "Atlanta",         (33.755,  -84.401) },
-            { "Arlington",       (32.748,  -97.093) },
-            { "Houston",         (29.685,  -95.411) },
-            { "Kansas City",     (39.049,  -94.484) },
-            { "Foxborough",      (42.091,  -71.264) },
-            { "East Rutherford", (40.813,  -74.074) },
-            { "Philadelphia",    (39.901,  -75.167) },
-            { "Seattle",         (47.595, -122.331) },
-            { "Inglewood",       (33.953, -118.339) },
-            { "Santa Clara",     (37.403, -121.970) },
-            { "Vancouver",       (49.278, -123.112) },
-            { "Toronto",         (43.632,  -79.419) },
-            { "Mexico City",     (19.303,  -99.151) },
-            { "Guadalupe",       (25.671, -100.311) },
-            { "Zapopan",         (20.673, -103.367) },
-        };
-
-        // Climate comfort range [min°C, max°C] for each team
-        // Teams outside this range get a disadvantage, inside get a small advantage
         private static readonly Dictionary<string, (double Min, double Max)> TeamComfort = new(StringComparer.OrdinalIgnoreCase)
         {
-            // Tropical / hot & humid comfortable
             { "brazil",          (24, 35) },
             { "colombia",        (22, 34) },
             { "ecuador",         (18, 30) },
@@ -50,8 +26,6 @@ namespace Oloraculo.Web.Services
             { "costa-rica",      (24, 32) },
             { "cameroon",        (24, 34) },
             { "nigeria",         (26, 36) },
-
-            // Hot & dry comfortable
             { "egypt",           (24, 38) },
             { "saudi-arabia",    (26, 40) },
             { "iran",            (22, 36) },
@@ -62,8 +36,6 @@ namespace Oloraculo.Web.Services
             { "qatar",           (26, 42) },
             { "uzbekistan",      (20, 36) },
             { "south-africa",    (16, 30) },
-
-            // Temperate (comfortable 14-26°C) — European & others
             { "germany",         (12, 26) },
             { "france",          (14, 26) },
             { "spain",           (16, 28) },
@@ -96,109 +68,99 @@ namespace Oloraculo.Web.Services
 
         private static readonly (double Min, double Max) DefaultComfort = (14, 28);
 
-        private static readonly string KnownCities = string.Join(", ", VenueCoords.Keys);
-
         private readonly OloraculoConfig _config = options.Value;
 
-        private async Task<string?> ResolveCityAsync(Fixture fixture, CancellationToken ct)
+        public async Task<FixtureWeatherContext?> FetchAndSaveAsync(Fixture fixture, CancellationToken ct = default)
         {
-            // Already has city data
-            var city = fixture.City ?? ExtractCity(fixture.Venue);
-            if (!string.IsNullOrWhiteSpace(city)) return city;
-
-            // Ask the LLM — it knows the WC 2026 schedule
-            if (string.IsNullOrWhiteSpace(_config.OpenRouterApiKey)) return null;
+            if (string.IsNullOrWhiteSpace(_config.OpenRouterApiKey))
+                return null;
 
             var home = fixture.HomeTeamId.Replace("-", " ");
             var away = fixture.AwayTeamId.Replace("-", " ");
+            var dateHint = fixture.KickoffUtc.HasValue
+                ? fixture.KickoffUtc.Value.UtcDateTime.ToString("yyyy-MM-dd")
+                : DateTimeOffset.UtcNow.ToString("yyyy-MM-dd");
 
-            using var request = new HttpRequestMessage(HttpMethod.Post, _config.OpenRouterBaseUrl.TrimEnd('/') + "/chat/completions");
+            using var request = new HttpRequestMessage(HttpMethod.Post,
+                _config.OpenRouterBaseUrl.TrimEnd('/') + "/chat/completions");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _config.OpenRouterApiKey);
             request.Content = JsonContent.Create(new
             {
                 model = _config.MoraleModel,
                 messages = new[]
                 {
-                    new { role = "system", content = $"Search the 2026 FIFA World Cup schedule and reply ONLY with one city name from this exact list: {KnownCities}. If the city is not in the list or unknown, reply: unknown" },
-                    new { role = "user",   content = $"Search for: which city hosts the 2026 FIFA World Cup match between {home} and {away}? Reply with only the city name from the list." }
-                },
-                max_tokens = 15
+                    new
+                    {
+                        role = "system",
+                        content = """
+                            You are a weather analyst for the 2026 FIFA World Cup.
+                            Search for the match schedule and current weather forecasts.
+                            Return ONLY a JSON object with these fields:
+                            {
+                              "city": "<host city name>",
+                              "venue": "<stadium name>",
+                              "tempC": <expected temperature at match time in Celsius as number>,
+                              "humidityPct": <expected humidity 0-100 as number>,
+                              "precipPct": <rain probability 0-100 as number>,
+                              "condition": "<weather condition: Clear, Partly cloudy, Overcast, Rain, Thunderstorm, etc>"
+                            }
+                            If you cannot find the match or weather data, return {"city": "unknown"}.
+                            Do NOT wrap in markdown code blocks. Return raw JSON only.
+                            """
+                    },
+                    new
+                    {
+                        role = "user",
+                        content = $"Search for: 2026 FIFA World Cup match {home} vs {away} on {dateHint}. Find the host city, stadium, and weather forecast at match time. Return the JSON."
+                    }
+                }
             });
 
             try
             {
                 using var response = await http.SendAsync(request, ct);
-                if (!response.IsSuccessStatusCode) return null;
+                if (!response.IsSuccessStatusCode)
+                {
+                    var err = await response.Content.ReadAsStringAsync(ct);
+                    logger.LogWarning("Weather fetch HTTP {Status}: {Body}", (int)response.StatusCode, err);
+                    return null;
+                }
+
                 var body = await response.Content.ReadAsStringAsync(ct);
-                using var doc = JsonDocument.Parse(body);
-                var answer = doc.RootElement
+                using var outer = JsonDocument.Parse(body);
+                var content = outer.RootElement
                     .GetProperty("choices")[0]
                     .GetProperty("message")
                     .GetProperty("content")
-                    .GetString()?.Trim();
+                    .GetString() ?? "{}";
 
-                logger.LogInformation("City lookup for {Home} vs {Away}: model returned '{Answer}'", home, away, answer);
+                content = ExtractJson(content);
+                using var inner = JsonDocument.Parse(content);
+                var root = inner.RootElement;
 
-                if (string.IsNullOrWhiteSpace(answer) || answer.Equals("unknown", StringComparison.OrdinalIgnoreCase))
+                var city = root.TryGetProperty("city", out var cityEl) ? cityEl.GetString() : null;
+                if (string.IsNullOrWhiteSpace(city) || city.Equals("unknown", StringComparison.OrdinalIgnoreCase))
+                {
+                    logger.LogWarning("Weather: could not resolve city for {Home} vs {Away}", home, away);
                     return null;
+                }
 
-                // Validate it's actually a known city
-                var found = VenueCoords.ContainsKey(answer);
-                if (!found) logger.LogWarning("City '{Answer}' not found in VenueCoords", answer);
-                return found ? answer : null;
-            }
-            catch { return null; }
-        }
+                var tempC     = root.TryGetProperty("tempC",      out var tEl) ? tEl.GetDouble() : 22.0;
+                var humidity  = root.TryGetProperty("humidityPct", out var hEl) ? hEl.GetDouble() : 50.0;
+                var precip    = root.TryGetProperty("precipPct",   out var pEl) ? pEl.GetDouble() : 0.0;
+                var condition = root.TryGetProperty("condition",   out var cEl) ? cEl.GetString() ?? "Unknown" : "Unknown";
+                var venue     = root.TryGetProperty("venue",       out var vEl) ? vEl.GetString() ?? "" : "";
 
-        public async Task<FixtureWeatherContext?> FetchAndSaveAsync(Fixture fixture, CancellationToken ct = default)
-        {
-            var city = await ResolveCityAsync(fixture, ct);
-            if (string.IsNullOrWhiteSpace(city))
-                return null;
-
-            if (!VenueCoords.TryGetValue(city, out var coords))
-                return null;
-
-            // If no kickoff time, forecast for tomorrow as best approximation
-            var kickoff = fixture.KickoffUtc ?? DateTimeOffset.UtcNow.AddDays(1);
-            var date = kickoff.UtcDateTime.ToString("yyyy-MM-dd");
-            var kickoffHour = kickoff.UtcDateTime.Hour;
-
-            var url = $"https://api.open-meteo.com/v1/forecast" +
-                      $"?latitude={coords.Lat}&longitude={coords.Lon}" +
-                      $"&hourly=temperature_2m,relativehumidity_2m,precipitation_probability,weathercode" +
-                      $"&start_date={date}&end_date={date}&timezone=UTC";
-
-            try
-            {
-                var json = await http.GetStringAsync(url, ct);
-                var doc = JsonDocument.Parse(json);
-                var hourly = doc.RootElement.GetProperty("hourly");
-
-                var temps = hourly.GetProperty("temperature_2m").EnumerateArray().Select(e => e.GetDouble()).ToArray();
-                var humidity = hourly.GetProperty("relativehumidity_2m").EnumerateArray().Select(e => e.GetDouble()).ToArray();
-                var precip = hourly.GetProperty("precipitation_probability").EnumerateArray().Select(e => e.GetDouble()).ToArray();
-                var codes = hourly.GetProperty("weathercode").EnumerateArray().Select(e => e.GetInt32()).ToArray();
-
-                // Average 3-hour window around kickoff
-                var indices = new[] { kickoffHour - 1, kickoffHour, kickoffHour + 1 }
-                    .Where(i => i >= 0 && i < temps.Length)
-                    .ToArray();
-
-                if (indices.Length == 0) return null;
-
-                var tempC    = indices.Average(i => temps[i]);
-                var humPct   = indices.Average(i => humidity[i]);
-                var precipPct = indices.Average(i => precip[i]);
-                var code     = codes[indices[indices.Length / 2]];
+                logger.LogInformation("Weather for {Home} vs {Away}: {City} ({Venue}) {TempC}°C {Condition}",
+                    home, away, city, venue, tempC, condition);
 
                 var weather = new FixtureWeatherContext
                 {
                     FixtureId            = fixture.Id,
                     TempC                = Math.Round(tempC, 1),
-                    HumidityPct          = Math.Round(humPct, 1),
-                    PrecipPct            = Math.Round(precipPct, 1),
-                    Condition            = WmoDescription(code),
+                    HumidityPct          = Math.Round(humidity, 1),
+                    PrecipPct            = Math.Round(precip, 1),
+                    Condition            = condition,
                     HomeClimateAdvantage = ClimateAdvantage(tempC, fixture.HomeTeamId),
                     AwayClimateAdvantage = ClimateAdvantage(tempC, fixture.AwayTeamId),
                     UpdatedAt            = DateTimeOffset.UtcNow
@@ -221,8 +183,9 @@ namespace Oloraculo.Web.Services
                 await db.SaveChangesAsync(ct);
                 return weather;
             }
-            catch
+            catch (Exception ex)
             {
+                logger.LogWarning("Weather fetch failed for {Home} vs {Away}: {Error}", home, away, ex.Message);
                 return null;
             }
         }
@@ -240,61 +203,35 @@ namespace Oloraculo.Web.Services
             {
                 if (await FetchAndSaveAsync(fixture, ct) is not null)
                     count++;
+                await Task.Delay(500, ct);
             }
-
             return count;
         }
 
-        private static string? ExtractCity(string? venue)
+        private static string ExtractJson(string text)
         {
-            if (string.IsNullOrWhiteSpace(venue)) return null;
-            // Match known WC 2026 venue names to cities
-            return venue switch
+            text = text.Trim();
+            if (text.StartsWith("```"))
             {
-                var v when v.Contains("Hard Rock",       StringComparison.OrdinalIgnoreCase) => "Miami Gardens",
-                var v when v.Contains("Mercedes-Benz",   StringComparison.OrdinalIgnoreCase) => "Atlanta",
-                var v when v.Contains("AT&T",            StringComparison.OrdinalIgnoreCase) => "Arlington",
-                var v when v.Contains("NRG",             StringComparison.OrdinalIgnoreCase) => "Houston",
-                var v when v.Contains("Arrowhead",       StringComparison.OrdinalIgnoreCase) => "Kansas City",
-                var v when v.Contains("Gillette",        StringComparison.OrdinalIgnoreCase) => "Foxborough",
-                var v when v.Contains("MetLife",         StringComparison.OrdinalIgnoreCase) => "East Rutherford",
-                var v when v.Contains("Lincoln",         StringComparison.OrdinalIgnoreCase) => "Philadelphia",
-                var v when v.Contains("Lumen",           StringComparison.OrdinalIgnoreCase) => "Seattle",
-                var v when v.Contains("SoFi",            StringComparison.OrdinalIgnoreCase) => "Inglewood",
-                var v when v.Contains("Levi",            StringComparison.OrdinalIgnoreCase) => "Santa Clara",
-                var v when v.Contains("BC Place",        StringComparison.OrdinalIgnoreCase) => "Vancouver",
-                var v when v.Contains("BMO",             StringComparison.OrdinalIgnoreCase) => "Toronto",
-                var v when v.Contains("Azteca",          StringComparison.OrdinalIgnoreCase) => "Mexico City",
-                var v when v.Contains("BBVA",            StringComparison.OrdinalIgnoreCase) => "Guadalupe",
-                var v when v.Contains("Akron",           StringComparison.OrdinalIgnoreCase) => "Zapopan",
-                _ => null
-            };
+                var start = text.IndexOf('\n');
+                if (start >= 0) text = text[(start + 1)..];
+                var end = text.LastIndexOf("```");
+                if (end >= 0) text = text[..end];
+            }
+            var first = text.IndexOf('{');
+            var last  = text.LastIndexOf('}');
+            if (first >= 0 && last > first)
+                text = text[first..(last + 1)];
+            return text.Trim();
         }
 
         private static double ClimateAdvantage(double tempC, string teamId)
         {
             var comfort = TeamComfort.TryGetValue(teamId, out var c) ? c : DefaultComfort;
-
             if (tempC >= comfort.Min && tempC <= comfort.Max)
-                return 0.025; // in comfort zone
-
+                return 0.025;
             var dist = tempC < comfort.Min ? comfort.Min - tempC : tempC - comfort.Max;
-            return Math.Max(-0.06, -dist * 0.006); // ~0.6% per degree outside range
+            return Math.Max(-0.06, -dist * 0.006);
         }
-
-        private static string WmoDescription(int code) => code switch
-        {
-            0          => "Clear sky",
-            1          => "Mainly clear",
-            2          => "Partly cloudy",
-            3          => "Overcast",
-            45 or 48   => "Foggy",
-            >= 51 and <= 57 => "Drizzle",
-            >= 61 and <= 67 => "Rain",
-            >= 71 and <= 77 => "Snow",
-            >= 80 and <= 82 => "Rain showers",
-            >= 95          => "Thunderstorm",
-            _              => "Unknown"
-        };
     }
 }

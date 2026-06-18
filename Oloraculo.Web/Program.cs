@@ -61,7 +61,7 @@ builder.Services.AddHttpClient<AvailabilityNewsService>((sp, client) =>
 });
 builder.Services.AddHttpClient<WeatherService>((_, client) =>
 {
-    client.Timeout = TimeSpan.FromSeconds(15);
+    client.Timeout = TimeSpan.FromSeconds(60);
     client.DefaultRequestHeaders.UserAgent.ParseAdd("Oloraculo");
 });
 builder.Services.AddHttpClient<TeamMoraleService>((sp, client) =>
