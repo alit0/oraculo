@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @inject EvaluationService Evaluation
 @inject OloraculoDbContext Db
+@inject ISnackbar Snackbar
 
 <PageTitle>Rendimiento</PageTitle>
 
@@ -9,6 +10,7 @@
     <div class="page-head">
         <MudText Typo="Typo.h3">Rendimiento</MudText>
         <MudText Typo="Typo.body1" Color="Color.Secondary">Predicciones guardadas evaluadas con Brier, RPS, log loss y precisión del favorito.</MudText>
+        <BusyButton Text="Recalcular" BusyText="Recalculando..." IsBusy="_recalculating" Icon="@Icons.Material.Filled.Refresh" Variant="Variant.Outlined" Color="Color.Secondary" OnClick="Recalculate" />
     </div>
 
     @if (!_loaded)
@@ -95,6 +97,7 @@
     private IReadOnlyList<PredictionEvaluation> _worst = [];
     private Dictionary<string, string> _names = [];
     private bool _loaded;
+    private bool _recalculating;
 
     protected override async Task OnInitializedAsync()
     {
@@ -103,6 +106,31 @@
         _best = await Evaluation.BestCallsAsync();
         _worst = await Evaluation.OverconfidentFailuresAsync();
         _loaded = true;
+    }
+
+    private async Task Recalculate()
+    {
+        _recalculating = true;
+        try
+        {
+            var report = await Evaluation.EvaluateUnevaluatedPlayedFixturesAsync();
+            _performance = await Evaluation.PerformanceAsync();
+            _best = await Evaluation.BestCallsAsync();
+            _worst = await Evaluation.OverconfidentFailuresAsync();
+
+            var msg = report.Evaluated > 0
+                ? $"{report.Evaluated} nueva(s) evaluación(es) agregada(s)."
+                : $"Sin cambios. {report.SkippedAlreadyEvaluated} ya evaluados, {report.SkippedWithoutSnapshot} sin snapshot.";
+            Snackbar.Add(msg, report.Evaluated > 0 ? Severity.Success : Severity.Info);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error al recalcular: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _recalculating = false;
+        }
     }
 
     private string Name(string id) => _names.TryGetValue(id, out var name) ? name : id;
