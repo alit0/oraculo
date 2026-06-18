@@ -4,6 +4,8 @@
 @inject PredictionService Predictor
 @inject SnapshotService Snapshots
 @inject ISnackbar Snackbar
+@inject WeatherService Weather
+@inject TeamMoraleService MoraleService
 
 <PageTitle>Fixture completo</PageTitle>
 
@@ -59,6 +61,43 @@
         @if (_predicting || _saving || _loadingSnapshot)
         {
             <MudProgressLinear Class="inline-progress" Color="Color.Primary" Indeterminate="true" />
+        }
+    </MudPaper>
+
+    <MudPaper Class="surface-card" Elevation="0">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="action-row">
+            <MudIcon Icon="@Icons.Material.Filled.Bolt" Color="Color.Secondary" Size="Size.Small" />
+            <MudText Typo="Typo.body2" Color="Color.Secondary">Contexto en tiempo real:</MudText>
+            <BusyButton Text="Actualizar clima"
+                        BusyText="Actualizando clima..."
+                        IsBusy="_refreshingWeather"
+                        Disabled="@_refreshingMorale"
+                        Variant="Variant.Outlined"
+                        Icon="@Icons.Material.Filled.WbSunny"
+                        OnClick="RefreshWeather" />
+            <BusyButton Text="Actualizar moral"
+                        BusyText="Analizando equipos..."
+                        IsBusy="_refreshingMorale"
+                        Disabled="@(!MoraleService.IsConfigured || _refreshingWeather)"
+                        Variant="Variant.Outlined"
+                        Icon="@Icons.Material.Filled.Psychology"
+                        OnClick="RefreshMorale" />
+            @if (!MoraleService.IsConfigured)
+            {
+                <MudText Typo="Typo.caption" Color="Color.Warning">OpenRouter API key no configurada</MudText>
+            }
+            @if (_weatherUpdatedAt is not null)
+            {
+                <MudText Typo="Typo.caption" Color="Color.Secondary">Clima: @_weatherUpdatedAt.Value.ToArgentina().ToString("HH:mm")</MudText>
+            }
+            @if (_moraleUpdatedAt is not null)
+            {
+                <MudText Typo="Typo.caption" Color="Color.Secondary">Moral: @_moraleUpdatedAt.Value.ToArgentina().ToString("HH:mm")</MudText>
+            }
+        </MudStack>
+        @if (_refreshingWeather || _refreshingMorale)
+        {
+            <MudProgressLinear Class="inline-progress" Color="Color.Secondary" Indeterminate="true" />
         }
     </MudPaper>
 
@@ -173,10 +212,14 @@
     private bool _predicting;
     private bool _saving;
     private bool _loadingSnapshot;
+    private bool _refreshingWeather;
+    private bool _refreshingMorale;
     private int _savedCount;
     private int _selectedFullFixtureSnapshotId;
     private int? _activeFullFixtureSnapshotId;
     private DateTimeOffset? _predictedAt;
+    private DateTimeOffset? _weatherUpdatedAt;
+    private DateTimeOffset? _moraleUpdatedAt;
     private string _error = "";
 
     protected override async Task OnInitializedAsync()
@@ -342,6 +385,44 @@
         finally
         {
             _loadingSnapshot = false;
+        }
+    }
+
+    private async Task RefreshWeather()
+    {
+        _refreshingWeather = true;
+        try
+        {
+            var count = await Weather.RefreshUpcomingAsync();
+            _weatherUpdatedAt = DateTimeOffset.UtcNow;
+            Snackbar.Add($"Clima actualizado para {count} partido(s).", count > 0 ? Severity.Success : Severity.Warning);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error al actualizar clima: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _refreshingWeather = false;
+        }
+    }
+
+    private async Task RefreshMorale()
+    {
+        _refreshingMorale = true;
+        try
+        {
+            var count = await MoraleService.RefreshUpcomingTeamsAsync();
+            _moraleUpdatedAt = DateTimeOffset.UtcNow;
+            Snackbar.Add($"Moral analizada para {count} equipo(s).", count > 0 ? Severity.Success : Severity.Warning);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error al analizar moral: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _refreshingMorale = false;
         }
     }
 
