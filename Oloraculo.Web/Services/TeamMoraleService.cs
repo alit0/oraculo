@@ -173,6 +173,9 @@ namespace Oloraculo.Web.Services
                 .GetProperty("content")
                 .GetString() ?? "{}";
 
+            // Perplexity may wrap JSON in markdown code blocks
+            content = ExtractJson(content);
+
             using var inner = JsonDocument.Parse(content);
             var root = inner.RootElement;
 
@@ -191,6 +194,25 @@ namespace Oloraculo.Web.Services
 
             adj = Math.Clamp(adj, -0.08, 0.08);
             return new MoraleResponse(adj, summary, signal, injuries, personal, prevMatch, morale);
+        }
+
+        private static string ExtractJson(string text)
+        {
+            text = text.Trim();
+            // Strip markdown code fences
+            if (text.StartsWith("```"))
+            {
+                var start = text.IndexOf('\n');
+                if (start >= 0) text = text[(start + 1)..];
+                var end = text.LastIndexOf("```");
+                if (end >= 0) text = text[..end];
+            }
+            // Find first { to last } as fallback
+            var first = text.IndexOf('{');
+            var last  = text.LastIndexOf('}');
+            if (first >= 0 && last > first)
+                text = text[first..(last + 1)];
+            return text.Trim();
         }
 
         private sealed record MoraleResponse(double Adjustment, string Summary, string Signal,
