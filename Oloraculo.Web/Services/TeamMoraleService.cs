@@ -160,7 +160,6 @@ namespace Oloraculo.Web.Services
                         content = $"Search for the latest news about {teamName} at the 2026 FIFA World Cup. Assess their condition for their next match based on: injuries, personal/family issues affecting players, their most recent WC match result and performance, and team morale signals."
                     }
                 },
-                response_format = new { type = "json_object" }
             }, options: JsonOpts);
 
             using var response = await http.SendAsync(request, ct);
