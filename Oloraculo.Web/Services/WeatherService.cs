@@ -8,7 +8,8 @@ using System.Text.Json;
 
 namespace Oloraculo.Web.Services
 {
-    public class WeatherService(HttpClient http, OloraculoDbContext db, IOptions<OloraculoConfig> options)
+    public class WeatherService(HttpClient http, OloraculoDbContext db, IOptions<OloraculoConfig> options,
+        ILogger<WeatherService> logger)
     {
         // WC 2026 venue coordinates keyed by city name from CSV
         private static readonly Dictionary<string, (double Lat, double Lon)> VenueCoords = new(StringComparer.OrdinalIgnoreCase)
@@ -115,13 +116,13 @@ namespace Oloraculo.Web.Services
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _config.OpenRouterApiKey);
             request.Content = JsonContent.Create(new
             {
-                model = "openai/gpt-4o-mini",
+                model = _config.MoraleModel,
                 messages = new[]
                 {
-                    new { role = "system", content = $"You know the 2026 FIFA World Cup schedule. Reply ONLY with one city name from this list: {KnownCities}. If unknown, reply: unknown" },
-                    new { role = "user",   content = $"What city hosts the WC 2026 match {home} vs {away}?" }
+                    new { role = "system", content = $"Search the 2026 FIFA World Cup schedule and reply ONLY with one city name from this exact list: {KnownCities}. If the city is not in the list or unknown, reply: unknown" },
+                    new { role = "user",   content = $"Search for: which city hosts the 2026 FIFA World Cup match between {home} and {away}? Reply with only the city name from the list." }
                 },
-                max_tokens = 10
+                max_tokens = 15
             });
 
             try
@@ -136,11 +137,15 @@ namespace Oloraculo.Web.Services
                     .GetProperty("content")
                     .GetString()?.Trim();
 
+                logger.LogInformation("City lookup for {Home} vs {Away}: model returned '{Answer}'", home, away, answer);
+
                 if (string.IsNullOrWhiteSpace(answer) || answer.Equals("unknown", StringComparison.OrdinalIgnoreCase))
                     return null;
 
                 // Validate it's actually a known city
-                return VenueCoords.ContainsKey(answer) ? answer : null;
+                var found = VenueCoords.ContainsKey(answer);
+                if (!found) logger.LogWarning("City '{Answer}' not found in VenueCoords", answer);
+                return found ? answer : null;
             }
             catch { return null; }
         }
