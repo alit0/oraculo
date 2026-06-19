@@ -30,6 +30,7 @@ namespace Oloraculo.Web.Services
         private readonly PlayerImpactService? _impact;
 
         private bool IsConfigured => !string.IsNullOrWhiteSpace(_config.OpenRouterApiKey);
+        public bool IsTavilyConfigured => !string.IsNullOrWhiteSpace(_config.TavilyApiKey);
 
         public AvailabilityNewsService(HttpClient http, OloraculoDbContext db, IOptions<OloraculoConfig> config, PlayerImpactService? impact = null)
         {
@@ -143,6 +144,143 @@ namespace Oloraculo.Web.Services
                 ImpactFallbackClaims = affecting - impactMatched,
                 Notes = updated ? ["Contexto de disponibilidad actualizado desde noticias."] : ["No se encontró el partido seleccionado."]
             };
+        }
+
+        /// <summary>
+        /// Fetches fresh availability news for both teams of a fixture via Tavily web search,
+        /// classifies it through the existing OpenRouter pipeline, and recomputes the fixture
+        /// context. Unlike the fixed-article path, this covers any team (search per team).
+        /// </summary>
+        public async Task<AvailabilityRefreshReport> RefreshFixtureFromTavilyAsync(string fixtureId, CancellationToken ct = default)
+        {
+            if (!IsConfigured)
+                return new AvailabilityRefreshReport { IsConfigured = false, Notes = ["La clave de OpenRouter no está configurada."] };
+            if (!IsTavilyConfigured)
+                return new AvailabilityRefreshReport { IsConfigured = true, Notes = ["La clave de Tavily no está configurada."] };
+
+            var fixture = await _db.Fixtures.FindAsync([fixtureId], ct);
+            if (fixture is null)
+                return new AvailabilityRefreshReport { IsConfigured = true, Notes = ["No se encontró el partido."] };
+
+            var teamNames = await _db.Teams.AsNoTracking()
+                .Where(t => t.Id == fixture.HomeTeamId || t.Id == fixture.AwayTeamId)
+                .ToDictionaryAsync(t => t.Id, t => t.Name, ct);
+
+            var notes = new List<string>();
+            var errors = new List<string>();
+            var saved = 0;
+
+            foreach (var teamId in new[] { fixture.HomeTeamId, fixture.AwayTeamId })
+            {
+                var teamName = teamNames.GetValueOrDefault(teamId, teamId.Replace("-", " "));
+                var fetch = await FetchTavilyForTeamAsync(teamId, teamName, ct);
+                if (fetch is null || !fetch.Success || string.IsNullOrWhiteSpace(fetch.Text))
+                {
+                    errors.Add(fetch?.Error ?? $"Tavily no devolvió datos para {teamName}.");
+                    continue;
+                }
+
+                await UpsertSourceAsync(fetch.Url, fetch, ct);
+                try
+                {
+                    var json = await ClassifyAsync(fetch, ct);
+                    var claims = ParseClaimsFromJson(json, fetch.Url, fetch.Publisher)
+                        .Where(c => c.Status != AvailabilityClaimStatus.NotRelevant)
+                        .ToList();
+
+                    // Tavily searched this national team, so the classifier sometimes returns the
+                    // player's club as the team. Force attribution to the searched national team.
+                    var canonicalName = teamNames.GetValueOrDefault(teamId, teamName);
+                    foreach (var claim in claims)
+                    {
+                        claim.TeamId = teamId;
+                        claim.TeamName = canonicalName;
+                    }
+
+                    await ReplaceClaimsForSourceAsync(fetch.Url, claims, ct);
+                    saved += claims.Count;
+                    notes.Add($"{teamName}: {claims.Count} reclamos desde Tavily.");
+                }
+                catch (Exception ex)
+                {
+                    errors.Add($"{teamName}: no se pudo clasificar ({ex.Message}).");
+                }
+            }
+
+            await RecomputePredictionFlagsAsync(ct);
+            var impactMatched = await RefreshClaimImpactsAsync(ct);
+            var updated = await RefreshFixtureContextCountsAsync(fixtureId, [], ct);
+            var affecting = await _db.AvailabilityClaims.CountAsync(c => c.AffectsPrediction, ct);
+            var matched = await _db.AvailabilityClaims.CountAsync(c => c.AffectsPrediction && c.Position != PlayerPositions.Unknown, ct);
+
+            return new AvailabilityRefreshReport
+            {
+                IsConfigured = true,
+                SourcesFetched = 2,
+                ClaimsSaved = saved,
+                ClaimsAffectingPredictions = affecting,
+                RoleMatchedClaims = matched,
+                RoleUnknownClaims = affecting - matched,
+                ImpactMatchedClaims = impactMatched,
+                ImpactFallbackClaims = affecting - impactMatched,
+                ContextRowsUpdated = updated ? 1 : 0,
+                Notes = notes,
+                Errors = errors
+            };
+        }
+
+        private async Task<SourceFetchResult?> FetchTavilyForTeamAsync(string teamId, string teamName, CancellationToken ct)
+        {
+            var url = $"tavily://{teamId}";
+            var query = $"{teamName} injuries, suspensions and squad availability for the 2026 FIFA World Cup (June 2026): who is out, doubtful, or returning.";
+            try
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.tavily.com/search");
+                request.Content = JsonContent.Create(new
+                {
+                    api_key = _config.TavilyApiKey,
+                    query,
+                    search_depth = "advanced",
+                    topic = "news",
+                    days = 30,
+                    max_results = 6,
+                    include_answer = true
+                });
+
+                using var response = await _http.SendAsync(request, ct);
+                if (!response.IsSuccessStatusCode)
+                    return SourceFetchResult.Fail(url, (int)response.StatusCode, teamName, "Tavily", $"Tavily HTTP {(int)response.StatusCode}.");
+
+                var body = await response.Content.ReadAsStringAsync(ct);
+                using var doc = JsonDocument.Parse(body);
+                var root = doc.RootElement;
+
+                var sb = new StringBuilder();
+                sb.AppendLine($"Equipo: {teamName}");
+                if (root.TryGetProperty("answer", out var ans) && ans.ValueKind == JsonValueKind.String)
+                    sb.AppendLine(ans.GetString());
+                if (root.TryGetProperty("results", out var results) && results.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var r in results.EnumerateArray())
+                    {
+                        var title = r.TryGetProperty("title", out var tt) ? tt.GetString() : "";
+                        var content = r.TryGetProperty("content", out var cc) ? cc.GetString() : "";
+                        sb.AppendLine($"- {title}: {content}");
+                    }
+                }
+
+                var text = sb.ToString().Trim();
+                if (text.Length > _config.AvailabilityMaxArticleChars)
+                    text = text[.._config.AvailabilityMaxArticleChars];
+                if (text.Length < 80)
+                    return SourceFetchResult.Fail(url, 200, teamName, "Tavily", "Tavily devolvió texto insuficiente.");
+
+                return SourceFetchResult.Ok(url, 200, $"Tavily: {teamName}", "Tavily", text);
+            }
+            catch (Exception ex)
+            {
+                return SourceFetchResult.Fail(url, 0, teamName, "Tavily", ex.Message);
+            }
         }
 
         public async Task<IReadOnlyList<AvailabilityClaim>> ClaimsForFixtureAsync(string fixtureId, CancellationToken ct = default)

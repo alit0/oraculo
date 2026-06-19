@@ -486,7 +486,9 @@
             var report = await Api.RefreshFixtureContextAsync(_selected.Id);
             AvailabilityRefreshReport? availabilityReport = null;
             if (!report.IsConfigured)
-                availabilityReport = await Availability.RefreshFixtureContextAsync(_selected.Id);
+                availabilityReport = Availability.IsTavilyConfigured
+                    ? await Availability.RefreshFixtureFromTavilyAsync(_selected.Id)
+                    : await Availability.RefreshFixtureContextAsync(_selected.Id);
 
             var notes = report.Errors.Count > 0 ? string.Join(" ", report.Errors) : string.Join(" ", report.Notes);
             if (availabilityReport is not null)
