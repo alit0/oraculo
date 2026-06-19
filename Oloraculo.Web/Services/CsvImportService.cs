@@ -185,7 +185,9 @@ namespace Oloraculo.Web.Services
 
         private async Task GenerateFixturesAsync(CancellationToken ct)
         {
-            _db.Fixtures.RemoveRange(_db.Fixtures);
+            // Add-only: never delete existing fixtures, so schedule, venue and
+            // results loaded from other sources (e.g. the schedule importer) are preserved.
+            var existingIds = (await _db.Fixtures.Select(f => f.Id).ToListAsync(ct)).ToHashSet();
             var groups = await _db.Groups.AsNoTracking().ToListAsync(ct);
 
             foreach (var group in groups.OrderBy(g => g.Name))
@@ -195,9 +197,13 @@ namespace Oloraculo.Web.Services
                 {
                     for (var j = i + 1; j < teams.Count; j++)
                     {
+                        var id = Fixture.GenerateFixtureId(group.Name, teams[i], teams[j]);
+                        if (existingIds.Contains(id))
+                            continue;
+
                         _db.Fixtures.Add(new Fixture
                         {
-                            Id = Fixture.GenerateFixtureId(group.Name, teams[i], teams[j]),
+                            Id = id,
                             Group = group.Name,
                             HomeTeamId = teams[i],
                             AwayTeamId = teams[j],

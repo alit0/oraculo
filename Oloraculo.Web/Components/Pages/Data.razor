@@ -3,6 +3,7 @@
 @inject CsvImportService Importer
 @inject RankingRefreshService Rankings
 @inject ApiFootballService Api
+@inject ScheduleService Schedule
 @inject AvailabilityNewsService Availability
 @inject OloraculoDbContext Db
 @inject ISnackbar Snackbar
@@ -24,12 +25,17 @@
         <MudStack Row="true" Spacing="1" Class="action-row">
             <BusyButton Text="Reimportar CSV" BusyText="Importando" IsBusy="_busy" Icon="@Icons.Material.Filled.UploadFile" OnClick="ImportAll" />
             <BusyButton Text="Actualizar rankings" BusyText="Actualizando" IsBusy="_rankingsBusy" Variant="Variant.Outlined" Color="Color.Secondary" Icon="@Icons.Material.Filled.Sync" OnClick="RefreshRankings" />
+            <BusyButton Text="Actualizar calendario (web)" BusyText="Descargando" IsBusy="_scheduleBusy" Variant="Variant.Outlined" Color="Color.Secondary" Icon="@Icons.Material.Filled.CalendarMonth" OnClick="RefreshSchedule" />
             <BusyButton Text="Actualizar partidos API-Football" BusyText="Actualizando" IsBusy="_apiBusy" Variant="Variant.Outlined" Color="Color.Secondary" Icon="@Icons.Material.Filled.CloudSync" OnClick="RefreshApi" />
             <BusyButton Text="Actualizar disponibilidad" BusyText="Analizando" IsBusy="_availabilityBusy" Variant="Variant.Outlined" Color="Color.Secondary" Icon="@Icons.Material.Filled.FactCheck" OnClick="RefreshAvailability" />
         </MudStack>
-        @if (_busy || _rankingsBusy || _apiBusy || _availabilityBusy)
+        @if (_busy || _rankingsBusy || _apiBusy || _availabilityBusy || _scheduleBusy)
         {
             <MudProgressLinear Class="inline-progress" Color="Color.Primary" Indeterminate="true" />
+        }
+        @if (_scheduleReport is not null)
+        {
+            <MudAlert Class="mt-2" Severity="@(_scheduleReport.Matched > 0 ? Severity.Success : Severity.Warning)" Variant="Variant.Outlined">@string.Join(" ", _scheduleReport.Notes)</MudAlert>
         }
         @if (_report is not null)
         {
@@ -116,12 +122,14 @@
 @code {
     private bool _busy;
     private bool _apiBusy;
+    private bool _scheduleBusy;
     private bool _rankingsBusy;
     private bool _availabilityBusy;
     private bool _loaded;
     private CsvImportReport? _report;
     private RankingRefreshReport? _rankingsReport;
     private ApiFootballRefreshReport? _apiReport;
+    private ScheduleRefreshReport? _scheduleReport;
     private AvailabilityRefreshReport? _availabilityReport;
     private AvailabilityRefreshReport? _roleReport;
     private int _teams;
@@ -176,6 +184,30 @@
         finally
         {
             _apiBusy = false;
+        }
+    }
+
+    private async Task RefreshSchedule()
+    {
+        _scheduleBusy = true;
+        _error = "";
+        try
+        {
+            _scheduleReport = await Schedule.RefreshAsync();
+            await Load();
+            Snackbar.Add(_scheduleReport.Matched > 0
+                ? $"Calendario actualizado: {_scheduleReport.Matched} partidos."
+                : "No se pudo actualizar el calendario.",
+                _scheduleReport.Matched > 0 ? Severity.Success : Severity.Warning);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            Snackbar.Add("No se pudo actualizar el calendario.", Severity.Error);
+        }
+        finally
+        {
+            _scheduleBusy = false;
         }
     }
 
