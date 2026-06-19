@@ -138,18 +138,18 @@ namespace Oloraculo.Web.Services
                 using var inner = JsonDocument.Parse(content);
                 var root = inner.RootElement;
 
-                var city = root.TryGetProperty("city", out var cityEl) ? cityEl.GetString() : null;
+                var city = AsText(root, "city");
                 if (string.IsNullOrWhiteSpace(city) || city.Equals("unknown", StringComparison.OrdinalIgnoreCase))
                 {
                     logger.LogWarning("Weather: could not resolve city for {Home} vs {Away}", home, away);
                     return null;
                 }
 
-                var tempC     = root.TryGetProperty("tempC",      out var tEl) ? tEl.GetDouble() : 22.0;
-                var humidity  = root.TryGetProperty("humidityPct", out var hEl) ? hEl.GetDouble() : 50.0;
-                var precip    = root.TryGetProperty("precipPct",   out var pEl) ? pEl.GetDouble() : 0.0;
-                var condition = root.TryGetProperty("condition",   out var cEl) ? cEl.GetString() ?? "Unknown" : "Unknown";
-                var venue     = root.TryGetProperty("venue",       out var vEl) ? vEl.GetString() ?? "" : "";
+                var tempC     = AsDouble(root, "tempC", 22.0);
+                var humidity  = AsDouble(root, "humidityPct", 50.0);
+                var precip    = AsDouble(root, "precipPct", 0.0);
+                var condition = AsText(root, "condition") ?? "Unknown";
+                var venue     = AsText(root, "venue") ?? "";
 
                 logger.LogInformation("Weather for {Home} vs {Away}: {City} ({Venue}) {TempC}°C {Condition}",
                     home, away, city, venue, tempC, condition);
@@ -206,6 +206,32 @@ namespace Oloraculo.Web.Services
                 await Task.Delay(500, ct);
             }
             return count;
+        }
+
+        // LLM JSON is type-inconsistent (a number may come back as "20" string, etc.).
+        // Read tolerantly so a single odd type doesn't throw and drop the whole forecast.
+        private static string? AsText(JsonElement parent, string name)
+        {
+            if (!parent.TryGetProperty(name, out var el)) return null;
+            return el.ValueKind switch
+            {
+                JsonValueKind.String => el.GetString(),
+                JsonValueKind.Number => el.GetRawText(),
+                JsonValueKind.True => "true",
+                JsonValueKind.False => "false",
+                _ => null
+            };
+        }
+
+        private static double AsDouble(JsonElement parent, string name, double fallback)
+        {
+            if (!parent.TryGetProperty(name, out var el)) return fallback;
+            return el.ValueKind switch
+            {
+                JsonValueKind.Number => el.GetDouble(),
+                JsonValueKind.String => double.TryParse(el.GetString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : fallback,
+                _ => fallback
+            };
         }
 
         private static string ExtractJson(string text)

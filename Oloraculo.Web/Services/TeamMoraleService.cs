@@ -179,21 +179,53 @@ namespace Oloraculo.Web.Services
             using var inner = JsonDocument.Parse(content);
             var root = inner.RootElement;
 
-            var adj     = root.TryGetProperty("adjustment", out var adjEl) ? adjEl.GetDouble() : 0;
-            var summary = root.TryGetProperty("summary", out var sumEl) ? sumEl.GetString() ?? "" : "";
-            var signal  = root.TryGetProperty("signal", out var sigEl) ? sigEl.GetString() ?? "neutral" : "neutral";
+            var adj     = AsDouble(root, "adjustment");
+            var summary = AsText(root, "summary") ?? "";
+            var signal  = AsText(root, "signal") ?? "neutral";
 
             string injuries = "none", personal = "none", prevMatch = "unknown", morale = "none";
             if (root.TryGetProperty("signals_found", out var sf))
             {
-                injuries  = sf.TryGetProperty("injuries", out var i) ? i.GetString() ?? "none" : "none";
-                personal  = sf.TryGetProperty("personal_issues", out var p) ? p.GetString() ?? "none" : "none";
-                prevMatch = sf.TryGetProperty("previous_match", out var m) ? m.GetString() ?? "unknown" : "unknown";
-                morale    = sf.TryGetProperty("morale", out var mo) ? mo.GetString() ?? "none" : "none";
+                injuries  = AsText(sf, "injuries") ?? "none";
+                personal  = AsText(sf, "personal_issues") ?? "none";
+                prevMatch = AsText(sf, "previous_match") ?? "unknown";
+                morale    = AsText(sf, "morale") ?? "none";
             }
 
             adj = Math.Clamp(adj, -0.08, 0.08);
             return new MoraleResponse(adj, summary, signal, injuries, personal, prevMatch, morale);
+        }
+
+        /// <summary>
+        /// Reads a property as text regardless of whether the model returned a string, boolean,
+        /// or number. LLM JSON is inconsistent (e.g. "injuries": true vs "injuries": "Messi out"),
+        /// and a raw GetString() on a non-string throws and silently drops the whole result.
+        /// </summary>
+        private static string? AsText(JsonElement parent, string name)
+        {
+            if (!parent.TryGetProperty(name, out var el))
+                return null;
+            return el.ValueKind switch
+            {
+                JsonValueKind.String => el.GetString(),
+                JsonValueKind.True => "true",
+                JsonValueKind.False => "false",
+                JsonValueKind.Number => el.GetRawText(),
+                JsonValueKind.Null or JsonValueKind.Undefined => null,
+                _ => el.GetRawText()
+            };
+        }
+
+        private static double AsDouble(JsonElement parent, string name)
+        {
+            if (!parent.TryGetProperty(name, out var el))
+                return 0;
+            return el.ValueKind switch
+            {
+                JsonValueKind.Number => el.GetDouble(),
+                JsonValueKind.String => double.TryParse(el.GetString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : 0,
+                _ => 0
+            };
         }
 
         private static string ExtractJson(string text)
