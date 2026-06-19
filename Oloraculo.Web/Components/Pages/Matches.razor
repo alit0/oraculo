@@ -317,7 +317,6 @@
 
     protected override async Task OnInitializedAsync()
     {
-        SetToday();
         await LoadFixtures();
         _names = await Db.Teams.ToDictionaryAsync(t => t.Id, t => t.Name);
         _loaded = true;
