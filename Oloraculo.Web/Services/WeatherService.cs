@@ -93,18 +93,21 @@ namespace Oloraculo.Web.Services
                     {
                         role = "system",
                         content = """
-                            Eres un analista meteorológico para el Mundial FIFA 2026.
-                            Buscá el fixture y el pronóstico del tiempo actual.
+                            Eres un analista del Mundial FIFA 2026.
+                            Buscá la sede del partido. Lo más importante es identificar correctamente la ciudad y el estadio.
                             Devolvé SOLO un objeto JSON con estos campos:
                             {
-                              "city": "<nombre de la ciudad sede>",
+                              "city": "<nombre de la ciudad sede, en español>",
+                              "cityEn": "<host city name in English>",
                               "venue": "<nombre del estadio>",
-                              "tempC": <temperatura esperada al momento del partido en Celsius como número>,
-                              "humidityPct": <humedad esperada 0-100 como número>,
-                              "precipPct": <probabilidad de lluvia 0-100 como número>,
+                              "latitude": <latitud del estadio como número decimal>,
+                              "longitude": <longitud del estadio como número decimal>,
+                              "tempC": <temperatura aproximada esperada en Celsius como número>,
+                              "humidityPct": <humedad aproximada 0-100 como número>,
+                              "precipPct": <probabilidad de lluvia aproximada 0-100 como número>,
                               "condition": "<condición en español: Despejado, Parcialmente nublado, Nublado, Lluvia, Tormenta, etc>"
                             }
-                            Si no podés encontrar el partido o el clima, devolvé {"city": "unknown"}.
+                            Si no podés encontrar el partido o la sede, devolvé {"city": "unknown"}.
                             NO uses bloques de código markdown. Devolvé JSON puro.
                             """
                     },
@@ -145,14 +148,29 @@ namespace Oloraculo.Web.Services
                     return null;
                 }
 
+                // Perplexity estimates as fallback. The LLM resolves the venue well but its
+                // numeric forecast is unreliable (e.g. it guessed 18% rain where the real
+                // value was 98%), so we override with real Open-Meteo data when possible.
                 var tempC     = AsDouble(root, "tempC", 22.0);
                 var humidity  = AsDouble(root, "humidityPct", 50.0);
                 var precip    = AsDouble(root, "precipPct", 0.0);
                 var condition = AsText(root, "condition") ?? "Unknown";
                 var venue     = AsText(root, "venue") ?? "";
+                var source    = "estimado por IA";
 
-                logger.LogInformation("Weather for {Home} vs {Away}: {City} ({Venue}) {TempC}°C {Condition}",
-                    home, away, city, venue, tempC, condition);
+                var coords = await ResolveCoordsAsync(root, AsText(root, "cityEn") ?? city, ct);
+                if (coords is { } c2 &&
+                    await FetchRealForecastAsync(c2.Lat, c2.Lon, fixture.KickoffUtc, ct) is { } real)
+                {
+                    tempC = real.TempC;
+                    humidity = real.HumidityPct;
+                    precip = real.PrecipPct;
+                    condition = real.Condition;
+                    source = "Open-Meteo";
+                }
+
+                logger.LogInformation("Weather for {Home} vs {Away}: {City} ({Venue}) {TempC}°C {Condition} [{Source}]",
+                    home, away, city, venue, tempC, condition, source);
 
                 var weather = new FixtureWeatherContext
                 {
@@ -250,6 +268,106 @@ namespace Oloraculo.Web.Services
                 text = text[first..(last + 1)];
             return text.Trim();
         }
+
+        /// <summary>
+        /// Resolves stadium coordinates: trusts Perplexity's lat/lon if valid, otherwise
+        /// geocodes the city through Open-Meteo's free geocoding API.
+        /// </summary>
+        private async Task<(double Lat, double Lon)?> ResolveCoordsAsync(JsonElement root, string? city, CancellationToken ct)
+        {
+            var lat = AsDouble(root, "latitude", double.NaN);
+            var lon = AsDouble(root, "longitude", double.NaN);
+            if (!double.IsNaN(lat) && !double.IsNaN(lon) &&
+                lat is >= -90 and <= 90 && lon is >= -180 and <= 180 &&
+                !(Math.Abs(lat) < 0.01 && Math.Abs(lon) < 0.01))
+                return (lat, lon);
+
+            if (string.IsNullOrWhiteSpace(city))
+                return null;
+
+            try
+            {
+                var url = $"https://geocoding-api.open-meteo.com/v1/search?name={Uri.EscapeDataString(city)}&count=1&language=es";
+                var json = await http.GetStringAsync(url, ct);
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("results", out var results) &&
+                    results.ValueKind == JsonValueKind.Array && results.GetArrayLength() > 0)
+                {
+                    var r = results[0];
+                    return (r.GetProperty("latitude").GetDouble(), r.GetProperty("longitude").GetDouble());
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning("Geocoding failed for {City}: {Error}", city, ex.Message);
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Fetches the real forecast from Open-Meteo for the kickoff hour. Returns null when the
+        /// match date is outside Open-Meteo's forecast window, so the caller falls back to the estimate.
+        /// </summary>
+        private async Task<RealForecast?> FetchRealForecastAsync(double lat, double lon, DateTimeOffset? kickoff, CancellationToken ct)
+        {
+            var when = (kickoff ?? DateTimeOffset.UtcNow.AddDays(1)).UtcDateTime;
+            var date = when.ToString("yyyy-MM-dd");
+            var hour = when.Hour;
+
+            var url = "https://api.open-meteo.com/v1/forecast" +
+                      $"?latitude={lat.ToString(System.Globalization.CultureInfo.InvariantCulture)}" +
+                      $"&longitude={lon.ToString(System.Globalization.CultureInfo.InvariantCulture)}" +
+                      "&hourly=temperature_2m,relativehumidity_2m,precipitation_probability,weathercode" +
+                      $"&start_date={date}&end_date={date}&timezone=UTC";
+
+            try
+            {
+                var json = await http.GetStringAsync(url, ct);
+                using var doc = JsonDocument.Parse(json);
+                if (!doc.RootElement.TryGetProperty("hourly", out var hourly))
+                    return null;
+
+                var temps = hourly.GetProperty("temperature_2m").EnumerateArray().Select(e => e.GetDouble()).ToArray();
+                if (temps.Length == 0)
+                    return null;
+                var hums  = hourly.GetProperty("relativehumidity_2m").EnumerateArray().Select(e => e.GetDouble()).ToArray();
+                var precs = hourly.GetProperty("precipitation_probability").EnumerateArray().Select(e => e.GetDouble()).ToArray();
+                var codes = hourly.GetProperty("weathercode").EnumerateArray().Select(e => e.GetInt32()).ToArray();
+
+                var indices = new[] { hour - 1, hour, hour + 1 }.Where(i => i >= 0 && i < temps.Length).ToArray();
+                if (indices.Length == 0)
+                    return null;
+
+                var mid = indices[indices.Length / 2];
+                return new RealForecast(
+                    indices.Average(i => temps[i]),
+                    indices.Average(i => hums[i]),
+                    indices.Average(i => precs[i]),
+                    WmoDescription(codes[mid]));
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning("Open-Meteo forecast failed ({Lat},{Lon}): {Error}", lat, lon, ex.Message);
+                return null;
+            }
+        }
+
+        private static string WmoDescription(int code) => code switch
+        {
+            0 => "Despejado",
+            1 => "Mayormente despejado",
+            2 => "Parcialmente nublado",
+            3 => "Nublado",
+            45 or 48 => "Niebla",
+            >= 51 and <= 57 => "Llovizna",
+            >= 61 and <= 67 => "Lluvia",
+            >= 71 and <= 77 => "Nieve",
+            >= 80 and <= 82 => "Chaparrones",
+            >= 95 => "Tormenta",
+            _ => "Desconocido"
+        };
+
+        private sealed record RealForecast(double TempC, double HumidityPct, double PrecipPct, string Condition);
 
         private static double ClimateAdvantage(double tempC, string teamId)
         {
