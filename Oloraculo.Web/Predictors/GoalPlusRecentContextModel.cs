@@ -17,7 +17,8 @@ namespace Oloraculo.Web.Predictors
             _goalModel = goalModel;
         }
 
-        public string Name => "Goles + contexto reciente";
+        public const string ModelName = "Goles + contexto reciente";
+        public string Name => ModelName;
         public int Priority => 5;
 
         public MatchPrediction Predict(MatchContext context)

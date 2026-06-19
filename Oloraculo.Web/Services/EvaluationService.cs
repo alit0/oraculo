@@ -95,6 +95,77 @@ namespace Oloraculo.Web.Services
                 skippedWithoutSnapshot);
         }
 
+        /// <summary>
+        /// Evaluates the saved goal-rung snapshots (plain vs context-adjusted) for every played
+        /// fixture, scoring the latest snapshot per model. Guarded per (fixture, model) so it is
+        /// safe to run repeatedly. This is what powers the "does context help?" comparison.
+        /// </summary>
+        public async Task<FixtureEvaluationRefreshReport> EvaluateRungSnapshotsForPlayedFixturesAsync(CancellationToken ct = default)
+        {
+            var fixtures = await _db.Fixtures
+                .Where(f => f.IsPlayed && f.HomeGoals.HasValue && f.AwayGoals.HasValue)
+                .ToListAsync(ct);
+
+            var evaluated = 0;
+            var skippedAlreadyEvaluated = 0;
+            var skippedWithoutSnapshot = 0;
+
+            foreach (var fixture in fixtures)
+            {
+                var latestPerModel = (await _db.Snapshots
+                    .AsNoTracking()
+                    .Where(s => s.Kind == SnapshotService.MatchRungKind &&
+                                s.FixtureId == fixture.Id &&
+                                s.HomeWin.HasValue && s.Draw.HasValue && s.AwayWin.HasValue)
+                    .ToListAsync(ct))
+                    .GroupBy(s => s.ModelName)
+                    .Select(g => g.OrderByDescending(s => s.CreatedAt).ThenByDescending(s => s.Id).First())
+                    .ToList();
+
+                if (latestPerModel.Count == 0)
+                {
+                    skippedWithoutSnapshot++;
+                    continue;
+                }
+
+                var actual = OutcomeFromGoals(fixture.HomeGoals!.Value, fixture.AwayGoals!.Value);
+                foreach (var snapshot in latestPerModel)
+                {
+                    var alreadyEvaluated = await _db.Evaluations
+                        .AnyAsync(e => e.FixtureId == fixture.Id && e.ModelName == snapshot.ModelName, ct);
+                    if (alreadyEvaluated)
+                    {
+                        skippedAlreadyEvaluated++;
+                        continue;
+                    }
+
+                    var predicted = new OutcomeProbabilities(snapshot.HomeWin!.Value, snapshot.Draw!.Value, snapshot.AwayWin!.Value).Normalize();
+                    _db.Evaluations.Add(new PredictionEvaluation
+                    {
+                        ModelName = snapshot.ModelName,
+                        FixtureId = fixture.Id,
+                        HomeTeamId = fixture.HomeTeamId,
+                        AwayTeamId = fixture.AwayTeamId,
+                        HomeGoals = fixture.HomeGoals.Value,
+                        AwayGoals = fixture.AwayGoals.Value,
+                        HomeWin = predicted.HomeWin,
+                        Draw = predicted.Draw,
+                        AwayWin = predicted.AwayWin,
+                        Actual = actual,
+                        BrierScore = ProbabilityHelper.BrierScore(predicted, actual),
+                        RankedProbabilityScore = ProbabilityHelper.RankedProbabilityScore(predicted, actual),
+                        LogLoss = ProbabilityHelper.LogLoss(predicted, actual),
+                        TopPickCorrect = predicted.TopPick == actual,
+                        PredictedAt = snapshot.CreatedAt
+                    });
+                    evaluated++;
+                }
+            }
+
+            await _db.SaveChangesAsync(ct);
+            return new FixtureEvaluationRefreshReport(evaluated, skippedAlreadyEvaluated, skippedWithoutSnapshot);
+        }
+
         public async Task<IReadOnlyList<ModelPerformanceRow>> PerformanceAsync(CancellationToken ct = default)
         {
             var rows = await _db.Evaluations.AsNoTracking().ToListAsync(ct);

@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Oloraculo.Web.DAL;
 using Oloraculo.Web.Helpers;
 using Oloraculo.Web.Models;
+using Oloraculo.Web.Predictors;
 using Oloraculo.Web.Probability;
 using System.Data;
 using System.Globalization;
@@ -14,6 +15,7 @@ namespace Oloraculo.Web.Services
         private const string MatchKind = "match";
         private const string TournamentKind = "tournament";
         private const string FullFixtureKind = "full-fixture";
+        public const string MatchRungKind = "match-rung";
 
         private readonly OloraculoDbContext _db;
         private static readonly JsonSerializerOptions JsonOptions = new()
@@ -31,6 +33,28 @@ namespace Oloraculo.Web.Services
             _db.Snapshots.Add(snapshot);
             await _db.SaveChangesAsync(ct);
             return snapshot;
+        }
+
+        /// <summary>
+        /// Saves the two goal rungs (plain vs context-adjusted) under a separate kind so the
+        /// normal match-snapshot UX stays untouched, enabling a head-to-head Brier/RPS comparison
+        /// of whether weather/morale context improves predictions.
+        /// </summary>
+        public async Task<IReadOnlyList<PredictionSnapshot>> SaveMatchRungsAsync(MatchPredictionResult result, CancellationToken ct = default)
+        {
+            await EnsureSnapshotColumnsAsync(ct);
+            var now = DateTimeOffset.UtcNow;
+            var rungs = result.Predictions
+                .Where(p => p.PredictorName == GoalModel.ModelName || p.PredictorName == GoalPlusRecentContextModel.ModelName)
+                .Select(p => CreateMatchSnapshot(p, now, batchId: null, kind: MatchRungKind))
+                .ToList();
+
+            if (rungs.Count == 0)
+                return rungs;
+
+            _db.Snapshots.AddRange(rungs);
+            await _db.SaveChangesAsync(ct);
+            return rungs;
         }
 
         public async Task<IReadOnlyList<PredictionSnapshot>> SaveMatchesAsync(IEnumerable<MatchPrediction> predictions, CancellationToken ct = default)
@@ -93,7 +117,7 @@ namespace Oloraculo.Web.Services
             return batch;
         }
 
-        private static PredictionSnapshot CreateMatchSnapshot(MatchPrediction prediction, DateTimeOffset createdAt, int? batchId)
+        private static PredictionSnapshot CreateMatchSnapshot(MatchPrediction prediction, DateTimeOffset createdAt, int? batchId, string kind = MatchKind)
         {
             var payload = JsonSerializer.Serialize(new
             {
@@ -116,7 +140,7 @@ namespace Oloraculo.Web.Services
 
             return new PredictionSnapshot
             {
-                Kind = MatchKind,
+                Kind = kind,
                 BatchId = batchId,
                 FixtureId = prediction.FixtureId,
                 ModelName = prediction.PredictorName,

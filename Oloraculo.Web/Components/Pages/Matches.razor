@@ -456,6 +456,7 @@
         try
         {
             var snapshot = await Snapshots.SaveMatchAsync(_result.BestPrediction);
+            await Snapshots.SaveMatchRungsAsync(_result);
             _saved = true;
             _activeMatchSnapshotId = snapshot.Id;
             await RefreshMatchSnapshotsForSelected();

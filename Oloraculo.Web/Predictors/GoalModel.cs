@@ -27,7 +27,8 @@ namespace Oloraculo.Web.Predictors
             (_strengths, _avgGoals, _matchesUsed) = Fit(results, yearsWindow);
         }
 
-        public virtual string Name => "Modelo de goles (Poisson)";
+        public const string ModelName = "Modelo de goles (Poisson)";
+        public virtual string Name => ModelName;
         public virtual int Priority => 4;
 
         public virtual MatchPrediction Predict(MatchContext context)

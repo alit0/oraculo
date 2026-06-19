@@ -141,15 +141,17 @@
         try
         {
             var report = await Evaluation.EvaluateUnevaluatedPlayedFixturesAsync();
+            var rungReport = await Evaluation.EvaluateRungSnapshotsForPlayedFixturesAsync();
             _performance = await Evaluation.PerformanceAsync();
             _best = await Evaluation.BestCallsAsync();
             _worst = await Evaluation.OverconfidentFailuresAsync();
             _all = await Evaluation.AllAsync();
 
-            var msg = report.Evaluated > 0
-                ? $"{report.Evaluated} nueva(s) evaluación(es) agregada(s)."
-                : $"Sin cambios. {report.SkippedAlreadyEvaluated} ya evaluados, {report.SkippedWithoutSnapshot} sin snapshot.";
-            Snackbar.Add(msg, report.Evaluated > 0 ? Severity.Success : Severity.Info);
+            var totalNew = report.Evaluated + rungReport.Evaluated;
+            var msg = totalNew > 0
+                ? $"{totalNew} nueva(s) evaluación(es): {report.Evaluated} del Oráculo final, {rungReport.Evaluated} de escalones (goles vs contexto)."
+                : $"Sin cambios. {report.SkippedAlreadyEvaluated + rungReport.SkippedAlreadyEvaluated} ya evaluados, {rungReport.SkippedWithoutSnapshot} sin snapshot de escalón.";
+            Snackbar.Add(msg, totalNew > 0 ? Severity.Success : Severity.Info);
         }
         catch (Exception ex)
         {
