@@ -37,7 +37,7 @@ namespace Oloraculo.Web.Services
 
             var fifaPath = Path.Combine(dataDirectory, OloraculoDataFiles.FifaRankingsCsv);
             var fifaAlreadyFresh = File.Exists(fifaPath) &&
-                File.GetLastWriteTimeUtc(fifaPath).Date == DateTime.UtcNow.Date;
+                (DateTime.UtcNow - File.GetLastWriteTimeUtc(fifaPath)).TotalDays < 7;
 
             if (fifaAlreadyFresh)
             {
