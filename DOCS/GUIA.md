@@ -155,16 +155,35 @@ Este es el flujo correcto (más preciso y más barato que analizar todo de golpe
 
 ## 4. Pantallas
 
-| Ruta | Para qué |
-| --- | --- |
-| `/` | Resumen y escalera de modelos. |
-| `/lab` | Comparar dos equipos cualquiera a través de toda la escalera. |
-| `/matches` | Fixtures de grupos, predicción, contexto (clima/moral), carga de resultados. |
-| `/fixture` | Vista completa de un partido. |
-| `/tournament` | Correr la simulación Monte Carlo. |
-| `/tournament/snapshots` | Revisar proyecciones guardadas. |
-| `/performance` | Métricas de evaluación + Recalcular. |
-| `/data` | Importación CSV, refresh de rankings, API-Football, disponibilidad. |
+| Sección | Ruta | Para qué sirve | ¿Con qué frecuencia se usa? |
+| --- | --- | --- | --- |
+| **Inicio** | `/` | Resumen y la escalera de modelos. Orientación, no acción. | Rara vez. |
+| **Datos** | `/data` | Motor de carga: importa CSV, refresca rankings, **el calendario** (openfootball) y disponibilidad global. Es el panel de mantenimiento. | Casi nunca; una vez configurado ya está. |
+| **Partidos** | `/matches` | El lugar principal. Predicción partido por partido: contexto (lesiones/clima/moral) → predecir → guardar → cargar resultados. | A diario. |
+| **Laboratorio** | `/lab` | Comparar **dos equipos cualquiera** a través de toda la escalera de modelos, sin que sea un partido real. Para explorar hipótesis. | Cuando se quiera experimentar. |
+| **Fixture** | `/fixture` | Como Partidos pero **en lote**: predecir y guardar una ronda o grupo entero de una sola vez, en lugar de uno por uno. | Para predecir varios juntos. |
+| **Torneo** | `/tournament` | Corre la **simulación Monte Carlo** del Mundial completo: quién pasa de grupo, quién llega a la final, quién es campeón. | De vez en cuando, para la foto grande. |
+| **Snapshots** | `/tournament/snapshots` | Historial de las simulaciones de torneo guardadas, para comparar cómo evolucionó la proyección. | Para revisar el pasado. |
+| **Rendimiento** | `/performance` | La **medición**: qué tan bien predijo (Brier/RPS) y la comparación goles-vs-contexto. El juez de si el sistema funciona. | Después de que se jueguen partidos. |
+
+---
+
+## 4.1 Rutina diaria recomendada
+
+El flujo correcto es **predecir 1-3 días antes del partido**, no a último momento (a último momento la incertidumbre de la alineación contamina el pronóstico).
+
+1. **Mirar qué partidos se juegan en 1-3 días** (en Partidos).
+2. **Para cada uno, el ritual completo:**
+   - Seleccionar el partido.
+   - **Actualizar contexto API** (lesiones vía Tavily).
+   - **Analizar clima.**
+   - **Analizar moral.**
+   - **Predecir ahora.**
+   - **Guardar predicción** ← imprescindible; sin esto no se puede medir después.
+3. **Si se jugaron partidos ya predichos:** cargar el resultado real en Partidos y luego ir a **Rendimiento → Recalcular**.
+4. **(Opcional) Torneo:** correr la simulación para ver el panorama del campeón.
+
+Qué hay disponible al predecir con anticipación: lesiones (Tavily), clima (Open-Meteo, hasta ~16 días antes) y moral, sí. Lo único que **no** está hasta ~30-40 min antes del partido son las alineaciones/titulares — y por eso conviene no esperar a último momento.
 
 ---
 
